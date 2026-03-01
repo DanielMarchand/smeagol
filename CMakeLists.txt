@@ -23,6 +23,7 @@ add_library(golem_core STATIC
     src/Robot.cpp
     src/SceneRenderer.cpp
     src/SnapshotRenderer.cpp
+    src/VideoRenderer.cpp
     src/Simulator.cpp
 )
 target_include_directories(golem_core PUBLIC ${CMAKE_SOURCE_DIR}/include)

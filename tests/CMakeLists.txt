@@ -29,3 +29,7 @@ add_test(NAME DebugActuator COMMAND test_debug_actuator)
 add_executable(test_simulator test_simulator.cpp)
 target_link_libraries(test_simulator PRIVATE golem_core)
 add_test(NAME Simulator COMMAND test_simulator)
+
+add_executable(test_video_renderer test_video_renderer.cpp)
+target_link_libraries(test_video_renderer PRIVATE golem_core)
+add_test(NAME VideoRenderer COMMAND test_video_renderer)

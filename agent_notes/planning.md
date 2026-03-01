@@ -22,17 +22,17 @@
 
 - [x] **3.1** Energy Function. Implement $H = \sum k_i \delta_i^2 + \sum m_j g h_j$.
   - $k_i = \frac{E A_i}{l_i}$ and $\delta_i = \sqrt{(\Delta x)^2 + (\Delta y)^2 + (\Delta z)^2} - l_i$
-- [ ] **3.2** Quasi-Static Relaxation. Implement the iterative solver.
+- [x] **3.2** Quasi-Static Relaxation. Implement the iterative solver.
   - Calculate partial derivatives $\frac{\partial H}{\partial v}$.
   - Update vertices: $v = v - Ds \frac{\partial H}{\partial v}$.
   - Add uniform noise to prevent settling in unstable equilibria.
-- [ ] **3.3** Environment Physics.
+- [x] **3.3** Environment Physics.
   - Collision: Add high penalty energy if a vertex $z < 0$.
   - Friction: Lock $x,y$ movement if the lateral force derivative is lower than the static friction coefficient times normal force.
 - [ ] **3.4** Neural Network Tick. Implement the discrete loop updating neuron activations based on thresholds and synapse coefficients.
 - [ ] **3.5** Actuator Coupling. Update the target resting length ($l_i$) of bars attached to actuators based on neuron output. Clamp the change to $\le 1$ cm per cycle.
 - [ ] **3.6** Fitness Wrapper. Implement `evaluate(Robot)`, running the physics/neural loop for exactly 12 cycles and returning the net CoM Euclidean distance.
-- [ ] **3.7** Implement `VideoRenderer`. Add logic to capture a sequence of frames driven by the simulation tick loop. Add a destructor/finish method that invokes `std::system("ffmpeg -framerate 30 -i tmp/%04d.png out.mp4")` to compile the video. *(Deferred from Phase 2 — requires the simulator loop interface to be stable first.)*
+- [x] **3.7** Implement `VideoRenderer`. `addFrame(robot, sim_time)` renders into an off-screen Raylib window and writes numbered PNGs to a unique `/tmp/golem_video_<ts>/` directory. `finish(output_path)` calls `ffmpeg -y -framerate <fps> -i frame_%04d.png -c:v libx264 -pix_fmt yuv420p <output_path>`, cleans up temp frames on success, and is idempotent. Destructor calls `finish("")` automatically. `frameCount()` accessor for tests. 9/9 CTests passing.
 
 ### Phase 4: The Evolver (Genetic Algorithm)
 

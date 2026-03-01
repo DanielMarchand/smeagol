@@ -18,4 +18,12 @@ namespace Materials
 
     /// Gravitational acceleration [m/s²]
     inline constexpr double g       = 9.81;
+
+    /// Floor penalty stiffness [N/m²].
+    /// High value keeps vertices above z=0; should greatly exceed bar stiffness.
+    inline constexpr double k_floor  = 1.0e9;
+
+    /// Static friction coefficient (dimensionless).
+    /// Lateral force must exceed mu_static * normal_force to move a grounded vertex.
+    inline constexpr double mu_static = 0.5;
 }

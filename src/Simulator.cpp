@@ -1,5 +1,6 @@
 #include "Simulator.h"
 
+#include <random>
 #include <stdexcept>
 
 // ── Construction ──────────────────────────────────────────────────────────────
@@ -29,6 +30,10 @@ Simulator::Simulator(const Robot& robot)
         vertex_masses(bar.v1) += half;
         vertex_masses(bar.v2) += half;
     }
+
+    // Seed PRNG from a fixed seed for reproducible relaxation.
+    // The evolver can re-construct the Simulator to get a fresh seed.
+    rng_.seed(42);
 }
 
 // ── §3.1  Energy function ────────────────────────────────────────────────────
@@ -65,9 +70,22 @@ double Simulator::gravitationalEnergy() const
            (vertex_masses.array() * positions.col(2).array()).sum();
 }
 
+double Simulator::collisionEnergy() const
+{
+    // H_collision = Σ_{z_j < 0}  k_floor · z_j²
+    double H = 0.0;
+    for (int j = 0; j < static_cast<int>(positions.rows()); ++j)
+    {
+        const double z = positions(j, 2);
+        if (z < 0.0)
+            H += Materials::k_floor * z * z;
+    }
+    return H;
+}
+
 double Simulator::totalEnergy() const
 {
-    return elasticEnergy() + gravitationalEnergy();
+    return elasticEnergy() + gravitationalEnergy() + collisionEnergy();
 }
 
 // ── State helpers ─────────────────────────────────────────────────────────────
@@ -83,5 +101,115 @@ void Simulator::copyPositionsBack(Robot& robot) const
     {
         robot.vertices[i].pos =
             Eigen::Vector3d(positions(i, 0), positions(i, 1), positions(i, 2));
+    }
+}
+
+// ── §3.2  Quasi-static relaxation ──────────────────────────────────────────
+
+Eigen::MatrixX3d Simulator::computeGradient() const
+{
+    const int N = static_cast<int>(positions.rows());
+    Eigen::MatrixX3d grad = Eigen::MatrixX3d::Zero(N, 3);
+
+    // ── Elastic contribution ───────────────────────────────────────────────
+    // For bar i connecting v1 and v2:
+    //   ∂H_i/∂p_v1 = -2 k_i δ_i û_i
+    //   ∂H_i/∂p_v2 = +2 k_i δ_i û_i
+    // where û_i = (p_v2 - p_v1) / ||p_v2 - p_v1||
+    for (const Bar& bar : robot_.bars)
+    {
+        const Eigen::Vector3d dp =
+            positions.row(bar.v2) - positions.row(bar.v1);
+        const double length = dp.norm();
+
+        // Guard against degenerate (zero-length) bar
+        if (length < 1e-14) continue;
+
+        const double delta   = length - bar.rest_length;
+        const double k       = bar.stiffness();
+        const Eigen::Vector3d g_contrib = (2.0 * k * delta / length) * dp;
+
+        grad.row(bar.v1) -= g_contrib;
+        grad.row(bar.v2) += g_contrib;
+    }
+
+    // ── Gravitational contribution ───────────────────────────────────────────
+    // ∂H_gravity/∂p_j = [0, 0, m_j * g]  (only the z column)
+    grad.col(2) += Materials::g * vertex_masses;
+
+    // ── Floor collision penalty (§3.3) ─────────────────────────────────────
+    // ∂H_collision/∂z_j = 2 * k_floor * z_j  (only when z_j < 0)
+    for (int j = 0; j < static_cast<int>(positions.rows()); ++j)
+    {
+        const double z = positions(j, 2);
+        if (z < 0.0)
+            grad(j, 2) += 2.0 * Materials::k_floor * z;
+    }
+
+    return grad;
+}
+
+Simulator::RelaxResult Simulator::relax(int    max_iterations,
+                                        double step_size,
+                                        double noise_amplitude,
+                                        double convergence_tol)
+{
+    std::uniform_real_distribution<double> noise_dist(
+        -noise_amplitude, +noise_amplitude);
+
+    const int N = static_cast<int>(positions.rows());
+
+    int  iter      = 0;
+    bool converged = false;
+
+    for (; iter < max_iterations; ++iter)
+    {
+        Eigen::MatrixX3d grad = computeGradient();
+
+        // §3.3 Friction: zero lateral grad for grounded vertices below threshold
+        applyFriction(grad);
+
+        // Convergence check (Frobenius norm of gradient)
+        if (grad.norm() < convergence_tol)
+        {
+            converged = true;
+            break;
+        }
+
+        // Gradient descent step
+        positions -= step_size * grad;
+
+        // Uniform noise to escape unstable equilibria
+        for (int j = 0; j < N; ++j)
+        {
+            positions(j, 0) += noise_dist(rng_);
+            positions(j, 1) += noise_dist(rng_);
+            positions(j, 2) += noise_dist(rng_);
+        }
+    }
+
+    return { iter, totalEnergy(), converged };
+}
+
+void Simulator::applyFriction(Eigen::MatrixX3d& grad) const
+{
+    for (int j = 0; j < static_cast<int>(positions.rows()); ++j)
+    {
+        const double z = positions(j, 2);
+        if (z > 0.0) continue;   // not in contact
+
+        // Normal force magnitude from floor penalty gradient
+        const double normal_force = 2.0 * Materials::k_floor * std::abs(z);
+
+        // Lateral (x,y) net force magnitude
+        const double lateral_force =
+            std::sqrt(grad(j, 0) * grad(j, 0) + grad(j, 1) * grad(j, 1));
+
+        // Static friction: lock x,y if lateral force is below threshold
+        if (lateral_force <= Materials::mu_static * normal_force)
+        {
+            grad(j, 0) = 0.0;
+            grad(j, 1) = 0.0;
+        }
     }
 }
