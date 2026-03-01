@@ -28,4 +28,14 @@ namespace Materials
     /// Static friction coefficient (dimensionless).
     /// Lateral force must exceed mu_static * normal_force to move a grounded vertex.
     inline constexpr double mu_static = 0.5;
+
+    /// Default bar spring stiffness [N/m].
+    /// At step_size=1e-7 and max vertex degree 6, the gradient-descent
+    /// stability ceiling is k < 1/(2·1e-7·6) ≈ 833,000 N/m.
+    /// 50,000 N/m is ~16× within that bound, giving a generous margin
+    /// for any topology the evolver can produce.
+    inline constexpr double k_default = 50'000.0;
+
+    /// Visual rendering radius for bars [m].  Purely cosmetic; no physics effect.
+    inline constexpr float VISUAL_RADIUS = 0.006f;
 }

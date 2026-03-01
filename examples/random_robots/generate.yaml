@@ -1,0 +1,57 @@
+# generate.yaml – robot generation parameters for generate_robots
+#
+# Run from repo root:
+#   build/generate_robots examples/random_robots/generate.yaml
+# Or via the helper script:
+#   examples/random_robots/run.sh
+
+# ── Batch settings ────────────────────────────────────────────────────────────
+
+# Number of robots to generate
+count: 10 #3
+
+# RNG seed (change to explore different configurations)
+seed: 42
+
+# Directory where robot_0.yaml, robot_1.yaml, ... are written.
+# Relative paths are resolved from this file's directory.
+output_dir: robots
+
+# ── Per-robot randomisation ───────────────────────────────────────────────────
+
+robot:
+  # Vertex count range
+  min_vertices: 2
+  max_vertices: 6
+
+  # Bounding box:
+  #   x, y  ∈ [-bbox_xy,  +bbox_xy]   m
+  #   z     ∈ [bbox_z_min, bbox_z_max] m  (above the floor)
+  bbox_xy:    0.100
+  bbox_z_min: 0.200
+  bbox_z_max: 0.400
+
+  # Bar spring stiffness [N/m]; drawn from [stiffness_min, stiffness_max].
+  # Stability ceiling at step_size=1e-7, max_degree=6: k < 833,000 N/m.
+  stiffness_min: 10000
+  stiffness_max: 100000
+
+  # Probability of adding an extra bar for each non-spanning-tree vertex pair
+  p_extra_bar: 0.3
+
+  # Neuron count range
+  min_neurons: 2
+  max_neurons: 6
+
+  # Neuron firing threshold range
+  threshold_min: 0.0
+  threshold_max: 1.0
+
+  # Synapse weights drawn from [-weight_range, +weight_range]
+  weight_range: 1.0
+
+  # Probability each bar gets an actuator attached
+  p_actuate_bar: 0.0
+
+  # Upper bound for bar_range; drawn from [0, bar_range_max] [m]
+  bar_range_max: 1.0

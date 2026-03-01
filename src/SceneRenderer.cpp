@@ -1,6 +1,7 @@
 #include "SceneRenderer.h"
 #include <rlgl.h>
 #include <cmath>
+#include <unordered_set>
 #include <vector>
 
 // ── Construction / destruction ────────────────────────────────────────────────
@@ -140,10 +141,34 @@ void SceneRenderer::runInteractive(const Robot& robot, int floor_slices)
 void SceneRenderer::drawRobot(const Robot& robot,
                               float vertex_radius,
                               Color vertex_color,
-                              Color bar_color)
+                              Color /*bar_color*/)
 {
+    // ── Muted palette for structural bars (cycles by bar index) ──────────
+    // Chosen to be clearly distinct from the neural-overlay colours
+    // (blue synapse lines, red inhibitory, bright-green actuator lines,
+    //  red/grey neuron spheres, gold CoM trail).
+    static const Color bar_palette[] = {
+        { 180, 200, 210, 255 },  // dusty blue
+        { 200, 195, 175, 255 },  // warm tan
+        { 175, 200, 185, 255 },  // sage
+        { 200, 175, 195, 255 },  // dusty mauve
+        { 210, 200, 165, 255 },  // khaki
+        { 175, 210, 200, 255 },  // steel teal
+    };
+    static constexpr int PALETTE_SIZE = 6;
+
+    // Amber for actuated bars — warm, high-contrast against structural palette.
+    static const Color actuator_color = { 255, 165, 45, 255 };
+
+    // Build set of actuated bar indices so the lookup is O(1).
+    std::unordered_set<int> actuated;
+    actuated.reserve(robot.actuators.size());
+    for (const auto& a : robot.actuators)
+        actuated.insert(a.bar_idx);
+
     // ── bars ──────────────────────────────────────────────────────────────
-    for (const auto& bar : robot.bars) {
+    for (int bi = 0; bi < static_cast<int>(robot.bars.size()); ++bi) {
+        const auto& bar = robot.bars[bi];
         if (bar.v1 < 0 || bar.v1 >= static_cast<int>(robot.vertices.size())) continue;
         if (bar.v2 < 0 || bar.v2 >= static_cast<int>(robot.vertices.size())) continue;
 
@@ -153,10 +178,14 @@ void SceneRenderer::drawRobot(const Robot& robot,
         Vector3 rp1 = toRaylib(p1.x(), p1.y(), p1.z());
         Vector3 rp2 = toRaylib(p2.x(), p2.y(), p2.z());
 
+        const Color color = actuated.count(bi)
+            ? actuator_color
+            : bar_palette[bi % PALETTE_SIZE];
+
         DrawCylinderEx(rp1, rp2,
-                       static_cast<float>(bar.radius),
-                       static_cast<float>(bar.radius),
-                       8, bar_color);
+                       Materials::VISUAL_RADIUS,
+                       Materials::VISUAL_RADIUS,
+                       8, color);
     }
 
     // ── vertices (drawn on top of bars) ───────────────────────────────────

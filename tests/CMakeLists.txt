@@ -41,3 +41,7 @@ add_test(NAME Fitness COMMAND test_fitness)
 add_executable(test_video_renderer test_video_renderer.cpp)
 target_link_libraries(test_video_renderer PRIVATE smeagol_core)
 add_test(NAME VideoRenderer COMMAND test_video_renderer)
+
+add_executable(test_robot_factory test_robot_factory.cpp)
+target_link_libraries(test_robot_factory PRIVATE smeagol_core)
+add_test(NAME RobotFactory COMMAND test_robot_factory)

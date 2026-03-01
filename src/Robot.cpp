@@ -158,8 +158,8 @@ double Robot::vertexMass(int i) const
     double mass = 0.0;
     for (const auto& b : bars) {
         if (b.v1 != i && b.v2 != i) continue;
-        const double L = (vertices[b.v1].pos - vertices[b.v2].pos).norm();
-        mass += 0.5 * Materials::rho * b.area() * L;
+        const double L0 = b.rest_length;
+        mass += 0.5 * Materials::rho * (b.stiffness / Materials::E) * L0 * L0;
     }
     return mass;
 }
@@ -229,7 +229,7 @@ void Robot::saveDebugImage(const std::string& path) const
 //   vertices:
 //     - [x, y, z]
 //   bars:
-//     - {v1: int, v2: int, rest_length: float, radius: float}
+//     - {v1: int, v2: int, rest_length: float, stiffness: float}
 //   neurons:
 //     - {threshold: float, weights: [float, ...]}
 //   actuators:
@@ -260,7 +260,7 @@ void Robot::toYAML(const std::string& path) const
             << YAML::Key << "v1"          << YAML::Value << b.v1
             << YAML::Key << "v2"          << YAML::Value << b.v2
             << YAML::Key << "rest_length" << YAML::Value << b.rest_length
-            << YAML::Key << "radius"      << YAML::Value << b.radius
+            << YAML::Key << "stiffness"   << YAML::Value << b.stiffness
             << YAML::EndMap;
     }
     out << YAML::EndSeq;
@@ -341,8 +341,6 @@ Robot Robot::fromYAML(const std::string& path)
     for (const auto& node : doc["bars"]) {
         const int    v1     = node["v1"].as<int>();
         const int    v2     = node["v2"].as<int>();
-        const double radius = node["radius"].as<double>();
-
         double rest_length = 0.0;
         if (node["rest_length"] && node["rest_length"].as<double>() != 0.0) {
             rest_length = node["rest_length"].as<double>();
@@ -350,9 +348,15 @@ Robot Robot::fromYAML(const std::string& path)
                    v2 >= 0 && v2 < static_cast<int>(r.vertices.size())) {
             rest_length = (r.vertices[v2].pos - r.vertices[v1].pos).norm();
         }
-        // if indices are out of range, rest_length stays 0.0;
-        // Robot::validate() will catch the bad index before the robot is used
-        r.bars.emplace_back(v1, v2, rest_length, radius);
+        // Stiffness: read directly, or convert from legacy "radius" field
+        double stiffness = Materials::k_default;
+        if (node["stiffness"]) {
+            stiffness = node["stiffness"].as<double>();
+        } else if (node["radius"] && rest_length > 0.0) {
+            const double rv = node["radius"].as<double>();
+            stiffness = Materials::E * M_PI * rv * rv / rest_length;
+        }
+        r.bars.emplace_back(v1, v2, rest_length, stiffness);
     }
 
     // ── neurons ───────────────────────────────────────────────────────────

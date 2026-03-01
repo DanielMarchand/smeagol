@@ -46,7 +46,7 @@ static Robot make_single_bar_horizontal()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 0.0));
     r.addVertex(Vertex(1.0, 0.0, 0.0));
-    r.addBar(Bar(0, 1, /*rest_length=*/1.0, /*radius=*/0.01));
+    r.addBar(Bar(0, 1, /*rest_length=*/1.0, /*stiffness=*/Materials::k_default));
     return r;
 }
 
@@ -67,11 +67,10 @@ static void test_positions_initialised_from_robot()
 
 static void test_vertex_masses_precomputed()
 {
-    // Single bar: mass = rho * A * L0, split equally between two vertices.
-    const double r     = 0.01;
-    const double L0    = 1.0;
-    const double A     = M_PI * r * r;
-    const double half  = 0.5 * Materials::rho * A * L0;
+    // Single bar: mass = rho * (k/E) * L0^2, split equally between two vertices.
+    const double L0   = 1.0;
+    const double k    = Materials::k_default;
+    const double half = 0.5 * Materials::rho * (k / Materials::E) * L0 * L0;
 
     Robot robot = make_single_bar_horizontal();
     Simulator sim(robot);
@@ -92,19 +91,18 @@ static void test_elastic_energy_at_rest_is_zero()
 static void test_elastic_energy_stretched_bar()
 {
     // Bar rest_length = 1.0 m, actual distance = 1.1 m → δ = 0.1 m.
-    //   k = E·A / L0
+    //   k = bar.stiffness
     //   H = k · δ²
-    const double r0    = 0.01;
+    const double k0    = 50000.0;
     const double L0    = 1.0;
-    const double A     = M_PI * r0 * r0;
-    const double k     = Materials::E * A / L0;
+    const double k     = k0;
     const double delta = 0.1;
     const double expected = k * delta * delta;
 
     Robot robot;
     robot.addVertex(Vertex(0.0, 0.0, 0.0));
     robot.addVertex(Vertex(1.1, 0.0, 0.0));   // 1.1 m apart
-    robot.addBar(Bar(0, 1, L0, r0));
+    robot.addBar(Bar(0, 1, L0, k0));
 
     Simulator sim(robot);
     CHECK_NEAR(sim.elasticEnergy(), expected, 1e-6);
@@ -113,17 +111,16 @@ static void test_elastic_energy_stretched_bar()
 static void test_elastic_energy_compressed_bar()
 {
     // Compression: bar is shorter than rest length, δ < 0, H = k·δ² > 0.
-    const double r0    = 0.01;
+    const double k0    = 50000.0;
     const double L0    = 1.0;
-    const double A     = M_PI * r0 * r0;
-    const double k     = Materials::E * A / L0;
+    const double k     = k0;
     const double delta = -0.05;   // compressed by 5 cm
     const double expected = k * delta * delta;
 
     Robot robot;
     robot.addVertex(Vertex(0.0, 0.0, 0.0));
     robot.addVertex(Vertex(0.95, 0.0, 0.0));
-    robot.addBar(Bar(0, 1, L0, r0));
+    robot.addBar(Bar(0, 1, L0, k0));
 
     Simulator sim(robot);
     CHECK_NEAR(sim.elasticEnergy(), expected, 1e-6);
@@ -132,18 +129,17 @@ static void test_elastic_energy_compressed_bar()
 static void test_elastic_energy_multiple_bars()
 {
     // Two bars: one at rest (ΔE=0), one stretched by δ.
-    const double r0    = 0.01;
+    const double k0    = 50000.0;
     const double L0    = 1.0;
-    const double A     = M_PI * r0 * r0;
-    const double k     = Materials::E * A / L0;
+    const double k     = k0;
     const double delta = 0.2;
 
     Robot robot;
     robot.addVertex(Vertex(0.0, 0.0, 0.0));  // 0
     robot.addVertex(Vertex(1.0, 0.0, 0.0));  // 1  — at rest from 0
     robot.addVertex(Vertex(2.2, 0.0, 0.0));  // 2  — 1.2 m from 1, rest=1.0
-    robot.addBar(Bar(0, 1, L0, r0));         // at rest
-    robot.addBar(Bar(1, 2, L0, r0));         // stretched by 0.2
+    robot.addBar(Bar(0, 1, L0, k0));         // at rest
+    robot.addBar(Bar(1, 2, L0, k0));         // stretched by 0.2
 
     Simulator sim(robot);
     CHECK_NEAR(sim.elasticEnergy(), k * delta * delta, 1e-6);
@@ -160,19 +156,18 @@ static void test_gravitational_energy_ground_plane()
 static void test_gravitational_energy_vertical_bar()
 {
     // Vertical bar: v0 at z=0, v1 at z=1.
-    // Bar mass: rho * A * L0, split equally.
-    // m_each = 0.5 * rho * pi * r² * L0
+    // Bar mass: rho * (k/E) * L0^2, split equally.
+    // m_each = 0.5 * rho * (k/E) * L0^2
     // H_gravity = m0*g*0 + m1*g*1 = m_each * g * 1.0
-    const double r0     = 0.01;
+    const double k0     = 50000.0;
     const double L0     = 1.0;
-    const double A      = M_PI * r0 * r0;
-    const double m_each = 0.5 * Materials::rho * A * L0;
+    const double m_each = 0.5 * Materials::rho * (k0 / Materials::E) * L0 * L0;
     const double expected = m_each * Materials::g * 1.0;
 
     Robot robot;
     robot.addVertex(Vertex(0.0, 0.0, 0.0));
     robot.addVertex(Vertex(0.0, 0.0, 1.0));  // z = 1 m
-    robot.addBar(Bar(0, 1, L0, r0));
+    robot.addBar(Bar(0, 1, L0, k0));
 
     Simulator sim(robot);
     CHECK_NEAR(sim.gravitationalEnergy(), expected, 1e-9);
@@ -184,7 +179,7 @@ static void test_total_energy_is_sum()
     Robot robot;
     robot.addVertex(Vertex(0.0, 0.0, 0.0));
     robot.addVertex(Vertex(1.1, 0.0, 0.5));  // stretched + elevated
-    robot.addBar(Bar(0, 1, 1.0, 0.01));
+    robot.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(robot);
     CHECK_NEAR(sim.totalEnergy(),
@@ -201,7 +196,7 @@ static void test_energy_recomputed_after_position_change()
     // Stretch bar by moving v1 to x=1.2
     sim.positions(1, 0) = 1.2;
     const double delta = 0.2;
-    const double k = Bar(0, 1, 1.0, 0.01).stiffness();
+    const double k = Materials::k_default;  // stiffness stored directly on Bar
 
     CHECK_NEAR(sim.elasticEnergy(), k * delta * delta, 1e-6);
 }
@@ -235,7 +230,7 @@ static void test_gradient_direction_stretched_bar()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 0.0));   // v0
     r.addVertex(Vertex(1.1, 0.0, 0.0));   // v1 (stretched)
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
     const double x0_before = sim.positions(0, 0);
@@ -259,15 +254,14 @@ static void test_gradient_gravity_only()
     // Single vertex with known mass, no bars.  Only gravitational gradient.
     // ∂H/∂p = [0, 0, m*g]
     // After one step (step_size=s): z → z - s*m*g  (vertex falls)
-    const double radius = 0.01;
+    const double k0     = Materials::k_default;
     const double L0     = 1.0;
-    const double A      = M_PI * radius * radius;
-    const double half_mass = 0.5 * Materials::rho * A * L0;
+    const double half_mass = 0.5 * Materials::rho * (k0 / Materials::E) * L0 * L0;
 
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 1.0));  // elevated
     r.addVertex(Vertex(1.0, 0.0, 1.0));
-    r.addBar(Bar(0, 1, L0, radius));     // bar at rest length (no elastic gradient)
+    r.addBar(Bar(0, 1, L0, k0));     // bar at rest length (no elastic gradient)
 
     const double step = 1e-8;
     Simulator sim(r);
@@ -287,7 +281,7 @@ static void test_relax_reduces_elastic_energy()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 0.0));
     r.addVertex(Vertex(1.5, 0.0, 0.0));   // stretched from rest=1.0
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
     const double He_before = sim.elasticEnergy();
@@ -304,7 +298,7 @@ static void test_relax_bar_approaches_rest_length()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 0.0));
     r.addVertex(Vertex(1.2, 0.0, 0.0));   // 20% stretch
-    r.addBar(Bar(0, 1, rest, 0.01));
+    r.addBar(Bar(0, 1, rest));
 
     Simulator sim(r);
     const double len_before = (sim.positions.row(1) - sim.positions.row(0)).norm();
@@ -321,7 +315,7 @@ static void test_relax_result_struct()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 0.0));
     r.addVertex(Vertex(1.1, 0.0, 0.0));
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
     auto result = sim.relax(200, 1e-8, 0.0);
@@ -338,7 +332,7 @@ static void test_relax_at_rest_does_not_increase_elastic_energy()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 0.0));
     r.addVertex(Vertex(1.0, 0.0, 0.0));   // exactly at rest length
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
     CHECK_NEAR(sim.elasticEnergy(), 0.0, EPS);
@@ -358,7 +352,7 @@ static void test_collision_energy_zero_above_floor()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 0.0));
     r.addVertex(Vertex(1.0, 0.0, 1.0));
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
     CHECK_NEAR(sim.collisionEnergy(), 0.0, EPS);
@@ -373,7 +367,7 @@ static void test_collision_energy_below_floor()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, z));
     r.addVertex(Vertex(1.0, 0.0, 0.0));
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
     CHECK_NEAR(sim.collisionEnergy(), expected, 1e-6);
@@ -385,7 +379,7 @@ static void test_total_energy_includes_collision()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, -0.05));   // below floor
     r.addVertex(Vertex(1.0, 0.0,  0.00));
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
     CHECK_NEAR(sim.totalEnergy(),
@@ -401,7 +395,7 @@ static void test_floor_gradient_pushes_vertex_up()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, -0.01));
     r.addVertex(Vertex(1.0, 0.0, -0.01));
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
     const double z_before = sim.positions(0, 2);
@@ -420,7 +414,7 @@ static void test_friction_locks_lateral_when_small_force()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, -0.001));  // just below floor
     r.addVertex(Vertex(1.0, 0.0,  0.000));
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
 
@@ -444,7 +438,7 @@ static void test_friction_allows_lateral_when_large_force()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, -0.001));
     r.addVertex(Vertex(1.0, 0.0,  0.000));
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
 
@@ -465,7 +459,7 @@ static void test_subsurface_vertex_rises_above_floor_after_relaxation()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, -0.05));
     r.addVertex(Vertex(1.0, 0.0, -0.05));
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Simulator sim(r);
     sim.relax(500, 1e-8, /*noise=*/0.0);

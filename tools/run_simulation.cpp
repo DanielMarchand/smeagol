@@ -95,7 +95,7 @@ int main(int argc, char* argv[])
     {
         // Neural cycle: tick network, then update bar rest-lengths
         sim.tickNeural();
-        sim.applyActuators();
+        sim.applyActuators(steps_per_frame);
 
         // Apply debug actuators (sine-wave driven, time-based)
         sim.applyDebugActuators(static_cast<double>(f) / fps);

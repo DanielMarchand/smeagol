@@ -45,8 +45,8 @@ static Robot make_test_robot()
     r.addVertex(Vertex(0.1, 0.2, 0.3));
     r.addVertex(Vertex(-0.05, 0.0, 0.15));
 
-    r.addBar(Bar(0, 1, 0.12, 0.008));
-    r.addBar(Bar(1, 2, 0.08, 0.010));
+    r.addBar(Bar(0, 1, 0.12, 30000.0));
+    r.addBar(Bar(1, 2, 0.08, 50000.0));
 
     // Two neurons so weight vector has 2 entries each
     Neuron n0(0.6);
@@ -90,7 +90,7 @@ static void test_roundtrip_structure()
         CHECK(loaded.bars[i].v1 == original.bars[i].v1);
         CHECK(loaded.bars[i].v2 == original.bars[i].v2);
         CHECK_NEAR(loaded.bars[i].rest_length, original.bars[i].rest_length, 1e-12);
-        CHECK_NEAR(loaded.bars[i].radius,      original.bars[i].radius,      1e-12);
+        CHECK_NEAR(loaded.bars[i].stiffness,    original.bars[i].stiffness,   1e-6);
     }
 
     // neurons
@@ -139,7 +139,7 @@ static void test_yaml_is_readable_text()
     CHECK(doc["bars"][0]["v1"]);
     CHECK(doc["bars"][0]["v2"]);
     CHECK(doc["bars"][0]["rest_length"]);
-    CHECK(doc["bars"][0]["radius"]);
+    CHECK(doc["bars"][0]["stiffness"]);
 
     // Neuron stored as map with threshold + weights
     CHECK(doc["neurons"][0]["threshold"]);

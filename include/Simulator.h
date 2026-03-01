@@ -195,16 +195,20 @@ public:
     /**
      * @brief Update bar rest-lengths from the current neuron activations.
      *
-     * For each Actuator a:
+     * Actuators are extension-only: bar_range ∈ [0, 0.01] m.
+     *   - Neuron fires    (activation = 1.0): target = base + bar_range
+     *   - Neuron quiesces (activation = 0.0): target = base (fully retracted)
      *
-     *   Δl = clamp(activations_[a.neuron_idx] · a.bar_range, −0.01, +0.01)
-     *   rest_lengths_[a.bar_idx] += Δl
+     * The rest length is linearly ramped from its current value to the target
+     * over the coming cycle: a per-step delta is stored and applied inside
+     * relax() on each gradient-descent iteration, spreading the elastic change
+     * evenly and eliminating the shock of an instantaneous length jump.
      *
-     * The ±1 cm clamp enforces the paper's hard limit on length change per
-     * neural cycle.  Must be called after tickNeural() to use the freshest
-     * activations.  No-op when the robot has no actuators.
+     * Must be called after tickNeural().  No-op when the robot has no actuators.
+     *
+     * @param steps_per_cycle  Number of relax() iterations in the coming cycle.
      */
-    void applyActuators();
+    void applyActuators(int steps_per_cycle);
 
     // ── State ─────────────────────────────────────────────────────────────
 
@@ -264,4 +268,25 @@ private:
     [[nodiscard]] Eigen::MatrixX3d computeGradient() const;
 
     std::mt19937 rng_;   ///< PRNG for relaxation noise
+
+    /**
+     * Nominal (genotype) rest lengths, shape == robot.bars.size().
+     * Copied from robot_.bars at construction and never modified.
+     * applyActuators() uses these as the base so that bars retract
+     * fully when their neuron quiesces.
+     */
+    std::vector<double> base_rest_lengths_;
+
+    /**
+     * Target rest lengths set by applyActuators() for the coming cycle.
+     * relax() ramps rest_lengths_ toward these values one step at a time.
+     */
+    std::vector<double> target_rest_lengths_;
+
+    /**
+     * Per-bar rest-length increment applied each relax() iteration.
+     * = (target - current) / steps_per_cycle, computed by applyActuators().
+     * Zero for non-actuated bars.
+     */
+    std::vector<double> rest_length_step_delta_;
 };

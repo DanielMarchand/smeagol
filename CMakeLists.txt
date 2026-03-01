@@ -26,6 +26,7 @@ add_library(smeagol_core STATIC
     src/VideoRenderer.cpp
     src/Simulator.cpp
     src/FitnessEvaluator.cpp
+    src/RobotFactory.cpp
 )
 target_include_directories(smeagol_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(smeagol_core PUBLIC Eigen3::Eigen yaml-cpp raylib)
@@ -58,3 +59,9 @@ target_link_libraries(run_simulation PRIVATE smeagol_core)
 
 add_executable(evaluate_fitness tools/evaluate_fitness.cpp)
 target_link_libraries(evaluate_fitness PRIVATE smeagol_core)
+
+add_executable(random_robots tools/random_robots.cpp)
+target_link_libraries(random_robots PRIVATE smeagol_core)
+
+add_executable(generate_robots tools/generate_robots.cpp)
+target_link_libraries(generate_robots PRIVATE smeagol_core)

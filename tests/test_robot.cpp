@@ -166,11 +166,11 @@ static void test_remove_neuron_patches()
 
 static void test_center_of_mass()
 {
-    // Two vertices along x, equal bar radius/length → symmetric CoM at midpoint
+    // Two vertices along x, equal bar stiffness/length → symmetric CoM at midpoint
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 0.0));
     r.addVertex(Vertex(1.0, 0.0, 0.0));
-    r.addBar(Bar(0, 1, 1.0, 0.01));
+    r.addBar(Bar(0, 1, 1.0));
 
     Eigen::Vector3d com = r.centerOfMass();
     CHECK(std::abs(com.x() - 0.5) < 1e-10);
@@ -183,11 +183,11 @@ static void test_vertex_mass()
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 0.0));
     r.addVertex(Vertex(1.0, 0.0, 0.0));
-    const double radius = 0.01;
-    r.addBar(Bar(0, 1, 1.0, radius));
+    const double stiffness = 50000.0;   // N/m  (k = bar.stiffness)
+    r.addBar(Bar(0, 1, 1.0, stiffness));
 
-    const double A        = M_PI * radius * radius;
-    const double bar_mass = Materials::rho * A * 1.0;  // ρ·A·L
+    // mass = rho * (k/E) * L0^2, split equally between two vertices
+    const double bar_mass = Materials::rho * (stiffness / Materials::E) * 1.0 * 1.0;
     const double half     = bar_mass / 2.0;
 
     CHECK(std::abs(r.vertexMass(0) - half) < 1e-10);

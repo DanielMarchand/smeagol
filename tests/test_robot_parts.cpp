@@ -75,24 +75,20 @@ static void test_vertex()
 
 static void test_bar()
 {
-    const double len    = 0.2;   // 20 cm
-    const double radius = 0.01;  // 1 cm
-    Bar b(0, 1, len, radius);
+    const double len      = 0.2;      // 20 cm
+    const double stiffness = 50000.0; // N/m
+    Bar b(0, 1, len, stiffness);
 
     CHECK(b.type()     == RobotPart::Type::Bar);
     CHECK(b.typeName() == "bar");
     CHECK(b.v1          == 0);
     CHECK(b.v2          == 1);
     CHECK(b.rest_length == len);
-    CHECK(b.radius      == radius);
+    CHECK(b.stiffness   == stiffness);
 
-    // area = π r²
-    const double expected_area = M_PI * radius * radius;
-    CHECK(std::abs(b.area() - expected_area) < 1e-15);
-
-    // stiffness k = E·A / L₀
-    const double expected_k = Materials::E * expected_area / len;
-    CHECK(std::abs(b.stiffness() - expected_k) < 1.0);  // within 1 N/m
+    // default-constructed bar should use k_default
+    Bar b_default(0, 1, 1.0);
+    CHECK(b_default.stiffness == Materials::k_default);
 
     // clone()
     auto cloned = b.clone();

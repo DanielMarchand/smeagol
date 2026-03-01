@@ -102,10 +102,16 @@ protected:
 
     /**
      * Draw all vertices as spheres and all bars as cylinders.
+     *
+     * Each structural bar gets a distinct muted colour cycling through a
+     * small palette (dusty blues, tans, sages, etc.).  Actuated bars
+     * (those referenced by robot.actuators) are drawn in amber so they
+     * stand out from the structural frame.
+     *
      * @param robot          The robot to draw.
      * @param vertex_radius  Visual sphere radius [m].
      * @param vertex_color   Colour for vertex spheres.
-     * @param bar_color      Colour for bar cylinders.
+     * @param bar_color      Unused (kept for API compatibility).
      */
     void drawRobot(const Robot&  robot,
                    float         vertex_radius = 0.012f,

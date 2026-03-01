@@ -7,8 +7,10 @@
 #
 # See run.sh for how this is consumed.
 
-cycles:          500
+# Total simulation time = num_frames * steps_per_frame * step_size seconds
+num_frames:      500
 steps_per_cycle: 100000
+steps_per_frame: 100000
 step_size:       1.0e-7
 
 # Video output settings
@@ -17,3 +19,4 @@ width:           640
 height:          480
 output:          /tmp/fitness_eval.mp4
 wind: 9.8
+

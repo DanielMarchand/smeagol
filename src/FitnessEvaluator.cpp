@@ -47,7 +47,7 @@ double FitnessEvaluator::evaluate(const Robot&                  robot,
 
     for (int c = 0; c < params_.cycles; ++c) {
         sim.tickNeural();
-        sim.applyActuators();
+        sim.applyActuators(params_.steps_per_cycle);
         sim.relax(params_.steps_per_cycle, params_.step_size,
                   /*noise=*/0.0, /*tol=*/0.0);
 

@@ -26,7 +26,9 @@ Simulator::Simulator(const Robot& robot)
     vertex_masses = Eigen::VectorXd::Zero(N);
     for (const Bar& bar : robot.bars)
     {
-        const double bar_mass = Materials::rho * bar.area() * bar.rest_length;
+        // m = rho * (k/E) * L0^2  (back-calculated from stiffness)
+        const double bar_mass = Materials::rho * (bar.stiffness / Materials::E)
+                                * bar.rest_length * bar.rest_length;
         const double half     = 0.5 * bar_mass;
         vertex_masses(bar.v1) += half;
         vertex_masses(bar.v2) += half;
@@ -37,9 +39,14 @@ Simulator::Simulator(const Robot& robot)
     rng_.seed(42);
 
     // Initialise per-bar rest-length overrides from genotype.
-    rest_lengths_.resize(robot_.bars.size());
-    for (int i = 0; i < static_cast<int>(robot_.bars.size()); ++i)
-        rest_lengths_[i] = robot_.bars[i].rest_length;
+    const int nb = static_cast<int>(robot_.bars.size());
+    rest_lengths_.resize(nb);
+    base_rest_lengths_.resize(nb);
+    target_rest_lengths_.resize(nb);
+    rest_length_step_delta_.resize(nb, 0.0);
+    for (int i = 0; i < nb; ++i)
+        rest_lengths_[i] = base_rest_lengths_[i] = target_rest_lengths_[i]
+                         = robot_.bars[i].rest_length;
 
     // Initialise neuron activations from genotype's stored activation field.
     activations_.resize(robot_.neurons.size());
@@ -63,7 +70,7 @@ double Simulator::elasticEnergy() const
 
         const double length = dp.norm();
         const double delta  = length - L0;
-        const double k      = Materials::E * bar.area() / L0;
+        const double k      = bar.stiffness;
 
         H += k * delta * delta;
     }
@@ -138,7 +145,7 @@ Eigen::MatrixX3d Simulator::computeGradient() const
         if (length < 1e-14) continue;
 
         const double delta   = length - L0;
-        const double k       = Materials::E * bar.area() / L0;
+        const double k       = bar.stiffness;
         const Eigen::Vector3d g_contrib = (2.0 * k * delta / length) * dp;
 
         grad.row(bar.v1) -= g_contrib;
@@ -182,6 +189,12 @@ Simulator::RelaxResult Simulator::relax(int    max_iterations,
 
     for (; iter < max_iterations; ++iter)
     {
+        // Advance actuator ramp: linearly move rest lengths toward their targets.
+        // This spreads the elastic change from a neural tick evenly across the
+        // full relaxation budget instead of applying it as a single step-change.
+        for (int i = 0; i < static_cast<int>(rest_lengths_.size()); ++i)
+            rest_lengths_[i] += rest_length_step_delta_[i];
+
         Eigen::MatrixX3d grad = computeGradient();
 
         // §3.3 Friction: zero lateral grad for grounded vertices below threshold
@@ -245,20 +258,34 @@ void Simulator::tickNeural()
 
 // ── §3.5  Actuator coupling ────────────────────────────────────────────────
 
-void Simulator::applyActuators()
+void Simulator::applyActuators(int steps_per_cycle)
 {
-    constexpr double MAX_DELTA = 0.01;  // 1 cm per cycle (paper spec)
+    constexpr double MAX_EXTENSION = 0.01;  // 1 cm maximum extension
+
+    const double inv_steps = (steps_per_cycle > 0)
+                             ? 1.0 / static_cast<double>(steps_per_cycle)
+                             : 1.0;
+
+    // Reset all deltas to zero; only actuated bars will get a non-zero value.
+    std::fill(rest_length_step_delta_.begin(), rest_length_step_delta_.end(), 0.0);
 
     for (const Actuator& a : robot_.actuators)
     {
         if (a.bar_idx    < 0 || a.bar_idx    >= static_cast<int>(rest_lengths_.size())) continue;
         if (a.neuron_idx < 0 || a.neuron_idx >= static_cast<int>(activations_.size())) continue;
 
-        const double delta = std::clamp(
+        // Extension-only: clamp to [0, MAX_EXTENSION]
+        const double extension = std::clamp(
             activations_[a.neuron_idx] * a.bar_range,
-            -MAX_DELTA, +MAX_DELTA);
+            0.0, MAX_EXTENSION);
 
-        rest_lengths_[a.bar_idx] += delta;
+        // Target is base length + extension (or base if neuron quiesces)
+        const double target = base_rest_lengths_[a.bar_idx] + extension;
+        target_rest_lengths_[a.bar_idx] = target;
+
+        // Per-step ramp: spread the length change evenly over the cycle
+        rest_length_step_delta_[a.bar_idx] =
+            (target - rest_lengths_[a.bar_idx]) * inv_steps;
     }
 }
 

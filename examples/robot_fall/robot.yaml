@@ -9,12 +9,12 @@ vertices:
   - [0.101, 0.10, 0.20]   # 3 – apex
 
 bars:
-  - {v1: 0, v2: 1, radius: 0.010}
-  - {v1: 0, v2: 2, radius: 0.010}
-  - {v1: 1, v2: 2, radius: 0.010}
-  - {v1: 0, v2: 3, radius: 0.008}
-  - {v1: 1, v2: 3, radius: 0.008}
-  - {v1: 2, v2: 3, radius: 0.008}
+  - {v1: 0, v2: 1, stiffness: 50000}
+  - {v1: 0, v2: 2, stiffness: 50000}
+  - {v1: 1, v2: 2, stiffness: 50000}
+  - {v1: 0, v2: 3, stiffness: 50000}
+  - {v1: 1, v2: 3, stiffness: 50000}
+  - {v1: 2, v2: 3, stiffness: 50000}
 
 neurons: []
 actuators: []
