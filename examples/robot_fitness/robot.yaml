@@ -1,0 +1,74 @@
+# robot.yaml – tetrahedron driven by a 2-neuron period-2 anti-phase oscillator.
+#
+# Geometry: same tetrahedron as robot_fall.
+#
+# Vertices:
+#   0: base front-left
+#   1: base front-right
+#   2: base back-centre
+#   3: apex
+#
+# Bar indices (rest lengths match exact vertex distances):
+#   0: v0-v1 base front    (L=0.200)
+#   1: v0-v2 base left     (L=0.224)
+#   2: v1-v2 base right    (L=0.224)
+#   3: v0-v3 strut left    (L=0.245)   ← actuated
+#   4: v1-v3 strut right   (L=0.245)
+#   5: v2-v3 strut back    (L=0.224)
+#
+# Neural network: 2-neuron cross-coupled anti-phase oscillator
+# ------------------------------------------------------------
+#   Neuron 0: primed active (activation=1.0)
+#             fires when neuron 1 was active last cycle (weight[1]=1.0)
+#   Neuron 1: starts silent (activation=0.0)
+#             fires when neuron 0 was active last cycle (weight[0]=1.0)
+#
+#   Both neurons have threshold=0.5.  Cross-coupling only (no self-weights).
+#
+#   Activation sequence (parallel update each frame):
+#     start : [1, 0]
+#     frame 0 tick → [0, 1]   (n1 sees prev n0=1 → fires; n0 sees prev n1=0 → silent)
+#     frame 1 tick → [1, 0]   (n0 sees prev n1=1 → fires; n1 sees prev n0=0 → silent)
+#     ... repeats with period 2 indefinitely
+#
+# Actuators (two on bar 3, opposing sign → zero long-term drift):
+# ---------------------------------------------------------------
+#   Actuator 0: neuron 0 → bar 3, bar_range = +0.010 m
+#     n0 fires → bar 3 rest-length += 1 cm (left strut LENGTHENS)
+#   Actuator 1: neuron 1 → bar 3, bar_range = −0.010 m
+#     n1 fires → bar 3 rest-length −= 1 cm (left strut SHORTENS)
+#
+#   Predicted bar-3 rest-length trajectory:
+#     After frame 0 apply: L0 − 0.010 m  (n1 fired, shrunk)
+#     After frame 1 apply: L0           (n0 fired, restored)
+#     → perfect ±1 cm oscillation around the natural length, no cumulative drift
+#
+#   Expected visual: apex rocks toward v0 (front-left) each odd frame,
+#   returns each even frame.  Check bar-3 rest-length in the stdout log.
+
+id: 3
+
+vertices:
+  - [0.00, 0.00, 0.00]   # 0 – base front-left
+  - [0.20, 0.00, 0.00]   # 1 – base front-right
+  - [0.10, 0.20, 0.00]   # 2 – base back-centre
+  - [0.10, 0.10, 0.20]   # 3 – apex
+
+bars:
+  - {v1: 0, v2: 1, radius: 0.010}   # 0 – base front
+  - {v1: 0, v2: 2, radius: 0.010}   # 1 – base left
+  - {v1: 1, v2: 2, radius: 0.010}   # 2 – base right
+  - {v1: 0, v2: 3, radius: 0.008}   # 3 – strut left  (actuated)
+  - {v1: 1, v2: 3, radius: 0.008}   # 4 – strut right
+  - {v1: 2, v2: 3, radius: 0.008}   # 5 – strut back
+
+neurons:
+  #               threshold  activation  weights (indexed by neuron id)
+  - {threshold: 0.5, activation: 1.0, weights: [0.0, 1.0]}  # 0 – primed; driven by n1
+  - {threshold: 0.5, activation: 0.0, weights: [1.0, 0.0]}  # 1 – silent; driven by n0
+
+actuators:
+  - {bar_idx: 3, neuron_idx: 0, bar_range:  0.100}  # n0 fires → left strut +1 cm
+  - {bar_idx: 3, neuron_idx: 1, bar_range: -0.100}  # n1 fires → left strut −1 cm
+
+debug_actuators: []

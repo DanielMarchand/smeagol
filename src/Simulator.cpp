@@ -149,6 +149,12 @@ Eigen::MatrixX3d Simulator::computeGradient() const
     // ∂H_gravity/∂p_j = [0, 0, m_j * g]  (only the z column)
     grad.col(2) += Materials::g * vertex_masses;
 
+    // ── Wind (optional) ──────────────────────────────────────────────────────
+    // Constant acceleration in +X, same form as gravity but horizontal.
+    // ∂H_wind/∂x_j = -wind * m_j  →  subtract from X column.
+    if (wind != 0.0)
+        grad.col(0) -= wind * vertex_masses;
+
     // ── Floor collision penalty (§3.3) ─────────────────────────────────────
     // ∂H_collision/∂z_j = 2 * k_floor * z_j  (only when z_j < 0)
     for (int j = 0; j < static_cast<int>(positions.rows()); ++j)

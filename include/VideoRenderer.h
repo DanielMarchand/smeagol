@@ -111,4 +111,8 @@ private:
     std::filesystem::path  frame_dir_;   ///< temp dir holding numbered PNGs
     int                    frame_count_ = 0;
     bool                   finished_    = false;
+
+    /// Centre-of-mass positions recorded once per addFrame call (Z-up coords).
+    /// Used to draw the 3D CoM trail and compute live displacement in the HUD.
+    std::vector<Eigen::Vector3d> com_trail_;
 };

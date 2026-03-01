@@ -230,6 +230,15 @@ public:
     std::vector<double> activations_;
 
     /**
+     * Optional wind acceleration [m/s²] applied to all vertices in +X.
+     * Set to a positive value before calling relax() to simulate a
+     * constant horizontal force (useful for sanity-checking the fitness
+     * evaluator without needing a working locomotion controller).
+     * Default 0.0 = no wind.
+     */
+    double wind = 0.0;
+
+    /**
      * Per-bar rest-length overrides, length == robot.bars.size().
      * Initialised from robot_.bars at construction; updated each frame by
      * applyDebugActuators() and applyActuators().  Exposed publicly so that

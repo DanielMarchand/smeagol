@@ -1,0 +1,19 @@
+# params.yaml – FitnessEvaluator parameters for robot_fitness example
+#
+# Uses the same neuralactuator robot to compare:
+#   • the 2-neuron anti-phase oscillator (low fitness due to equal/opposite actuation)
+# against a second "driven" robot that uses a single always-firing neuron
+# for monotonic strut elongation (higher fitness).
+#
+# See run.sh for how this is consumed.
+
+cycles:          500
+steps_per_cycle: 100000
+step_size:       1.0e-7
+
+# Video output settings
+fps:             10
+width:           640
+height:          480
+output:          /tmp/fitness_eval.mp4
+wind: 9.8

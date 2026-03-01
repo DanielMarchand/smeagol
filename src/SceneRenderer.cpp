@@ -229,3 +229,53 @@ void SceneRenderer::drawNeuralOverlay(const Robot&               robot,
         DrawSphere(npos[i], 0.016f, c);
     }
 }
+
+// ── CoM trail ─────────────────────────────────────────────────────────────────
+
+void SceneRenderer::drawComTrail(const std::vector<Eigen::Vector3d>& trail)
+{
+    if (trail.empty()) return;
+
+    const int n = static_cast<int>(trail.size());
+
+    // Draw line segments connecting consecutive CoM positions.
+    // Colour transitions from dark grey (oldest) to gold (newest).
+    for (int i = 1; i < n; ++i)
+    {
+        const float t = static_cast<float>(i) / static_cast<float>(n);
+        const Color c = {
+            static_cast<unsigned char>(80  + static_cast<int>(175 * t)),   // R: 80→255
+            static_cast<unsigned char>(80  + static_cast<int>( 90 * t)),   // G: 80→170
+            static_cast<unsigned char>(static_cast<int>(80 * (1.0f - t))), // B: 80→0
+            static_cast<unsigned char>(100 + static_cast<int>(155 * t))    // A: 100→255
+        };
+        DrawLine3D(
+            toRaylib(trail[i-1].x(), trail[i-1].y(), trail[i-1].z()),
+            toRaylib(trail[i  ].x(), trail[i  ].y(), trail[i  ].z()),
+            c);
+    }
+
+    // Draw a small sphere at each past CoM; brightest/largest at the current end.
+    for (int i = 0; i < n; ++i)
+    {
+        const float t = static_cast<float>(i) / static_cast<float>(n);
+        const Vector3 pos = toRaylib(trail[i].x(), trail[i].y(), trail[i].z());
+
+        if (i == n - 1)
+        {
+            // Current CoM — bright green, slightly larger
+            DrawSphere(pos, 0.013f, Color{50, 255, 80, 255});
+        }
+        else
+        {
+            const float r = 0.005f + 0.004f * t;   // 5mm → 9mm as trail ages
+            const Color c = {
+                static_cast<unsigned char>(80  + static_cast<int>(175 * t)),
+                static_cast<unsigned char>(80  + static_cast<int>( 90 * t)),
+                static_cast<unsigned char>(static_cast<int>(80 * (1.0f - t))),
+                static_cast<unsigned char>(80  + static_cast<int>(155 * t))
+            };
+            DrawSphere(pos, r, c);
+        }
+    }
+}

@@ -56,8 +56,11 @@ void VideoRenderer::addFrame(const Robot&               robot,
                              double                     sim_time,
                              const std::vector<double>& activations)
 {
-    // Centre camera on robot CoM (convert sim Z-up → Raylib Y-up)
+    // Record CoM for trail + displacement HUD (Z-up simulation coords)
     const Eigen::Vector3d com = robot.centerOfMass();
+    com_trail_.push_back(com);
+
+    // Centre camera on robot CoM (convert sim Z-up → Raylib Y-up)
     const Vector3 rl = toRaylib(com.x(), com.y(), com.z());
     lookAt(rl.x, rl.y, rl.z);
     resetCamera(0.8f);
@@ -67,11 +70,12 @@ void VideoRenderer::addFrame(const Robot&               robot,
         BeginMode3D(m_camera);
             drawFloor(30, 0.1f);
             drawRobot(robot);
+            drawComTrail(com_trail_);
             if (!activations.empty())
                 drawNeuralOverlay(robot, activations);
         EndMode3D();
 
-        // HUD overlay
+        // ── HUD ──────────────────────────────────────────────────────────
         const int active_n = [&]{
             int n = 0;
             for (double a : activations) if (a > 0.5) ++n;
@@ -88,6 +92,25 @@ void VideoRenderer::addFrame(const Robot&               robot,
                          (int)robot.bars.size(),
                          active_n, (int)activations.size());
         DrawText(hud.c_str(), 10, 10, 16, RAYWHITE);
+
+        // ── Displacement banner (XY, from first frame) ───────────────────
+        if (com_trail_.size() >= 2)
+        {
+            const double disp_xy = (com.head<2>() - com_trail_.front().head<2>()).norm();
+            const std::string disp_str =
+                TextFormat("displacement: %.4f m", disp_xy);
+
+            // Draw a semi-transparent background strip, then the text centred on it
+            const int font_size = 22;
+            const int text_w    = MeasureText(disp_str.c_str(), font_size);
+            const int strip_x   = m_width / 2 - text_w / 2 - 10;
+            const int strip_y   = 36;
+            DrawRectangle(strip_x, strip_y - 4, text_w + 20, font_size + 8,
+                          Color{0, 0, 0, 160});
+            DrawText(disp_str.c_str(),
+                     m_width / 2 - text_w / 2, strip_y,
+                     font_size, Color{255, 220, 50, 255});  // gold
+        }
     EndDrawing();
 
     // Save frame as numbered PNG

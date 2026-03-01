@@ -2,6 +2,7 @@
 
 #include "Robot.h"
 #include <raylib.h>
+#include <Eigen/Dense>
 #include <string>
 #include <vector>
 
@@ -133,6 +134,20 @@ protected:
      */
     void drawNeuralOverlay(const Robot&               robot,
                            const std::vector<double>& activations);
+
+    /**
+     * Draw the historical centre-of-mass path as a 3D trail.
+     *
+     * Each entry in @p trail is a simulation-space (Z-up) CoM position.
+     * Older positions are drawn as small dark spheres; the most recent
+     * position is drawn as a bright green sphere.  Consecutive positions
+     * are connected by gradient-coloured line segments.
+     *
+     * Must be called inside a BeginMode3D / EndMode3D block.
+     *
+     * @param trail  CoM positions in chronological order (Z-up coords).
+     */
+    void drawComTrail(const std::vector<Eigen::Vector3d>& trail);
 
     // ── Data ──────────────────────────────────────────────────────────────
 
