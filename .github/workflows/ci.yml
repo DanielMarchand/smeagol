@@ -70,8 +70,10 @@ jobs:
         run: find build/ -type f | xargs chmod +x
 
       - name: Run examples
+        env:
+          CI_NUMFRAMES: 1
         run: |
-          find examples -name run.sh | sort | while read script; do
+          find examples -name 'run_*' | sort | while read script; do
             echo "▶ $script"
             xvfb-run --auto-servernum bash "$script"
           done

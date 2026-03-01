@@ -22,6 +22,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <iostream>
+#include <cstdlib>
 #include <string>
 
 int main(int argc, char* argv[])
@@ -65,6 +66,11 @@ int main(int argc, char* argv[])
     } catch (const std::exception& e) {
         std::cerr << "Error loading simulation config: " << e.what() << "\n";
         return 1;
+    }
+
+    // CI_NUMFRAMES overrides num_frames from YAML (keeps CI runs fast)
+    if (const char* ci_env = std::getenv("CI_NUMFRAMES")) {
+        num_frames = std::stoi(ci_env);
     }
 
     std::cout << "Robot:  " << robot_path
