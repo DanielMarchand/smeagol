@@ -67,7 +67,7 @@ jobs:
           path: build/
 
       - name: Mark binaries executable
-        run: find build/ -type f -executable -o -name '*.sh' | xargs chmod +x
+        run: find build/ -type f | xargs chmod +x
 
       - name: Run examples
         run: |
