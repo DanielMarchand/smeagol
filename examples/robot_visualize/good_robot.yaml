@@ -1,0 +1,26 @@
+# Good robot: a simple 4-vertex tetrahedron-like truss with one neuron and one actuator.
+# All cross-references are valid:
+#   - bars reference vertices 0-3 (4 vertices exist)
+#   - actuator references bar 0 and neuron 0 (both exist)
+#   - neuron weight vector has size 1 (== number of neurons)
+
+id: 1
+vertices:
+  - [0.0,  0.0,  0.0]    # 0 – base front-left
+  - [0.2,  0.0,  0.0]    # 1 – base front-right
+  - [0.1,  0.2,  0.0]    # 2 – base back-centre
+  - [0.1,  0.1,  0.2]    # 3 – apex
+
+bars:
+  - {v1: 0, v2: 1, rest_length: 0.200, radius: 0.010}   # 0 – base front
+  - {v1: 0, v2: 2, rest_length: 0.224, radius: 0.010}   # 1 – base left
+  - {v1: 1, v2: 2, rest_length: 0.224, radius: 0.010}   # 2 – base right
+  - {v1: 0, v2: 3, rest_length: 0.245, radius: 0.008}   # 3 – strut left
+  - {v1: 1, v2: 3, rest_length: 0.245, radius: 0.008}   # 4 – strut right
+  - {v1: 2, v2: 3, rest_length: 0.200, radius: 0.008}   # 5 – strut back
+
+neurons:
+  - {threshold: 0.5, weights: [0.0]}   # 0 – single self-connection (weight 0 = open loop)
+
+actuators:
+  - {bar_idx: 0, neuron_idx: 0, bar_range: 0.010}   # drives the front base bar

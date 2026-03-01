@@ -13,3 +13,7 @@ add_test(NAME Robot COMMAND test_robot)
 add_executable(test_yaml test_yaml.cpp)
 target_link_libraries(test_yaml PRIVATE golem_core)
 add_test(NAME YAMLRoundtrip COMMAND test_yaml)
+
+add_executable(test_scene_renderer test_scene_renderer.cpp)
+target_link_libraries(test_scene_renderer PRIVATE golem_core)
+add_test(NAME SceneRenderer COMMAND test_scene_renderer)
