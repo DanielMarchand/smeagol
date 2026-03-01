@@ -1,7 +1,10 @@
 #include "Robot.h"
 
+#include <yaml-cpp/yaml.h>
+
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <stdexcept>
 
 // ── Static member ─────────────────────────────────────────────────────────────
@@ -209,14 +212,134 @@ bool Robot::isValid() const
     return true;
 }
 
-// ── YAML I/O stubs (phase 1.4) ────────────────────────────────────────────────
+// ── YAML I/O ──────────────────────────────────────────────────────────────────
+//
+// Format (mirrors the Lipson & Pollack paper section ordering):
+//
+//   id: <uint>
+//   vertices:
+//     - [x, y, z]
+//   bars:
+//     - {v1: int, v2: int, rest_length: float, radius: float}
+//   neurons:
+//     - {threshold: float, weights: [float, ...]}
+//   actuators:
+//     - {bar_idx: int, neuron_idx: int, bar_range: float}
 
-void Robot::toYAML(const std::string& /*path*/) const
+void Robot::toYAML(const std::string& path) const
 {
-    throw std::logic_error("Robot::toYAML not yet implemented (phase 1.4)");
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+
+    out << YAML::Key << "id" << YAML::Value << static_cast<unsigned long long>(id);
+
+    // ── vertices ──────────────────────────────────────────────────────────
+    out << YAML::Key << "vertices" << YAML::Value;
+    out << YAML::BeginSeq;
+    for (const auto& v : vertices) {
+        out << YAML::Flow << YAML::BeginSeq
+            << v.pos.x() << v.pos.y() << v.pos.z()
+            << YAML::EndSeq;
+    }
+    out << YAML::EndSeq;
+
+    // ── bars ──────────────────────────────────────────────────────────────
+    out << YAML::Key << "bars" << YAML::Value;
+    out << YAML::BeginSeq;
+    for (const auto& b : bars) {
+        out << YAML::BeginMap
+            << YAML::Key << "v1"          << YAML::Value << b.v1
+            << YAML::Key << "v2"          << YAML::Value << b.v2
+            << YAML::Key << "rest_length" << YAML::Value << b.rest_length
+            << YAML::Key << "radius"      << YAML::Value << b.radius
+            << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+
+    // ── neurons ───────────────────────────────────────────────────────────
+    out << YAML::Key << "neurons" << YAML::Value;
+    out << YAML::BeginSeq;
+    for (const auto& n : neurons) {
+        out << YAML::BeginMap;
+        out << YAML::Key << "threshold" << YAML::Value << n.threshold;
+        out << YAML::Key << "weights"   << YAML::Value;
+        out << YAML::Flow << YAML::BeginSeq;
+        for (int i = 0; i < n.synapse_weights.size(); ++i)
+            out << n.synapse_weights[i];
+        out << YAML::EndSeq;
+        out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+
+    // ── actuators ─────────────────────────────────────────────────────────
+    out << YAML::Key << "actuators" << YAML::Value;
+    out << YAML::BeginSeq;
+    for (const auto& a : actuators) {
+        out << YAML::BeginMap
+            << YAML::Key << "bar_idx"    << YAML::Value << a.bar_idx
+            << YAML::Key << "neuron_idx" << YAML::Value << a.neuron_idx
+            << YAML::Key << "bar_range"  << YAML::Value << a.bar_range
+            << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+
+    out << YAML::EndMap;
+
+    std::ofstream fout(path);
+    if (!fout.is_open())
+        throw std::runtime_error("Robot::toYAML: cannot open '" + path + "' for writing");
+    fout << out.c_str();
 }
 
-Robot Robot::fromYAML(const std::string& /*path*/)
+Robot Robot::fromYAML(const std::string& path)
 {
-    throw std::logic_error("Robot::fromYAML not yet implemented (phase 1.4)");
+    YAML::Node doc;
+    try {
+        doc = YAML::LoadFile(path);
+    } catch (const YAML::Exception& e) {
+        throw std::runtime_error("Robot::fromYAML: " + std::string(e.what()));
+    }
+
+    Robot r(doc["id"].as<unsigned long long>());
+
+    // ── vertices ──────────────────────────────────────────────────────────
+    for (const auto& node : doc["vertices"]) {
+        r.vertices.emplace_back(
+            node[0].as<double>(),
+            node[1].as<double>(),
+            node[2].as<double>()
+        );
+    }
+
+    // ── bars ──────────────────────────────────────────────────────────────
+    for (const auto& node : doc["bars"]) {
+        r.bars.emplace_back(
+            node["v1"].as<int>(),
+            node["v2"].as<int>(),
+            node["rest_length"].as<double>(),
+            node["radius"].as<double>()
+        );
+    }
+
+    // ── neurons ───────────────────────────────────────────────────────────
+    for (const auto& node : doc["neurons"]) {
+        Neuron n;
+        n.threshold = node["threshold"].as<double>();
+        const auto& w_node = node["weights"];
+        n.synapse_weights.resize(static_cast<int>(w_node.size()));
+        for (std::size_t i = 0; i < w_node.size(); ++i)
+            n.synapse_weights[static_cast<int>(i)] = w_node[i].as<double>();
+        r.neurons.push_back(std::move(n));
+    }
+
+    // ── actuators ─────────────────────────────────────────────────────────
+    for (const auto& node : doc["actuators"]) {
+        r.actuators.emplace_back(
+            node["bar_idx"].as<int>(),
+            node["neuron_idx"].as<int>(),
+            node["bar_range"].as<double>()
+        );
+    }
+
+    return r;
 }

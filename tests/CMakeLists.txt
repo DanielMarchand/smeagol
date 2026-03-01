@@ -9,3 +9,7 @@ add_test(NAME RobotParts COMMAND test_robot_parts)
 add_executable(test_robot test_robot.cpp)
 target_link_libraries(test_robot PRIVATE golem_core)
 add_test(NAME Robot COMMAND test_robot)
+
+add_executable(test_yaml test_yaml.cpp)
+target_link_libraries(test_yaml PRIVATE golem_core)
+add_test(NAME YAMLRoundtrip COMMAND test_yaml)
