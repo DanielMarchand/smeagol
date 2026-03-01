@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(Golem2000 VERSION 0.1.0 LANGUAGES CXX)
+project(Smeagol VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,15 +19,15 @@ find_package(raylib 4.0 REQUIRED)
 # Core library
 # ──────────────────────────────────────────────
 
-add_library(golem_core STATIC
+add_library(smeagol_core STATIC
     src/Robot.cpp
     src/SceneRenderer.cpp
     src/SnapshotRenderer.cpp
     src/VideoRenderer.cpp
     src/Simulator.cpp
 )
-target_include_directories(golem_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(golem_core PUBLIC Eigen3::Eigen yaml-cpp raylib)
+target_include_directories(smeagol_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(smeagol_core PUBLIC Eigen3::Eigen yaml-cpp raylib)
 
 # ──────────────────────────────────────────────
 # Tests
@@ -41,13 +41,16 @@ add_subdirectory(tests)
 # ──────────────────────────────────────────────
 
 add_executable(validate_robot tools/validate_robot.cpp)
-target_link_libraries(validate_robot PRIVATE golem_core)
+target_link_libraries(validate_robot PRIVATE smeagol_core)
 
 add_executable(visualize_robot tools/visualize_robot.cpp)
-target_link_libraries(visualize_robot PRIVATE golem_core)
+target_link_libraries(visualize_robot PRIVATE smeagol_core)
 
 add_executable(snapshot_robot tools/snapshot_robot.cpp)
-target_link_libraries(snapshot_robot PRIVATE golem_core)
+target_link_libraries(snapshot_robot PRIVATE smeagol_core)
 
 add_executable(deformation_series tools/deformation_series.cpp)
-target_link_libraries(deformation_series PRIVATE golem_core)
+target_link_libraries(deformation_series PRIVATE smeagol_core)
+
+add_executable(fall_animation tools/fall_animation.cpp)
+target_link_libraries(fall_animation PRIVATE smeagol_core)

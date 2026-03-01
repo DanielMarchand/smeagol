@@ -1,0 +1,20 @@
+# robot.yaml – tetrahedron sitting at rest on the floor (base at z=0)
+# Rest lengths match exact vertex distances → H_elastic = 0 at t=0
+
+id: 1
+vertices:
+  - [0.00, 0.00, 0.40]   # 0
+  - [0.20, 0.00, 0.40]   # 1
+  - [0.10, 0.20, 0.40]   # 2
+  - [0.101, 0.10, 0.20]   # 3 – apex
+
+bars:
+  - {v1: 0, v2: 1, rest_length: 0.20000, radius: 0.010}
+  - {v1: 0, v2: 2, rest_length: 0.22361, radius: 0.010}
+  - {v1: 1, v2: 2, rest_length: 0.22361, radius: 0.010}
+  - {v1: 0, v2: 3, rest_length: 0.24495, radius: 0.008}
+  - {v1: 1, v2: 3, rest_length: 0.24495, radius: 0.008}
+  - {v1: 2, v2: 3, rest_length: 0.22361, radius: 0.008}
+
+neurons: []
+actuators: []

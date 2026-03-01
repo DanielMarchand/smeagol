@@ -25,7 +25,7 @@ VideoRenderer::VideoRenderer(int fps, int width, int height,
     const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
     frame_dir_ = fs::path(temp_dir_base)
-                 / ("golem_video_" + std::to_string(now_ms));
+                 / ("smeagol_video_" + std::to_string(now_ms));
     fs::create_directories(frame_dir_);
 
     openWindow(/*hidden=*/true);

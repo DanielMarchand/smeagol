@@ -19,9 +19,11 @@ namespace Materials
     /// Gravitational acceleration [m/s²]
     inline constexpr double g       = 9.81;
 
-    /// Floor penalty stiffness [N/m²].
-    /// High value keeps vertices above z=0; should greatly exceed bar stiffness.
-    inline constexpr double k_floor  = 1.0e9;
+    /// Floor penalty stiffness [N/m].
+    /// Set equal to a typical bar stiffness (E·A/L₀ for r=1 cm, L₀=0.2 m ≈ 1.4e6 N/m).
+    /// A soft floor is acceptable for quasi-static gradient descent — the
+    /// robot will penetrate slightly but the gradient always pushes it back up.
+    inline constexpr double k_floor  = 1.4e6;
 
     /// Static friction coefficient (dimensionless).
     /// Lateral force must exceed mu_static * normal_force to move a grounded vertex.

@@ -1,4 +1,4 @@
-# Project Plan: Golem 2000 (Evolutionary Robotics) Replication in C++
+# Project Plan: Smeagol (Evolutionary Robotics) Replication in C++
 
 ---
 
@@ -32,6 +32,8 @@
 - [ ] **3.4** Neural Network Tick. Implement the discrete loop updating neuron activations based on thresholds and synapse coefficients.
 - [ ] **3.5** Actuator Coupling. Update the target resting length ($l_i$) of bars attached to actuators based on neuron output. Clamp the change to $\le 1$ cm per cycle.
 - [ ] **3.6** Fitness Wrapper. Implement `evaluate(Robot)`, running the physics/neural loop for exactly 12 cycles and returning the net CoM Euclidean distance.
+- [x] **3.8** `fall_animation` tool. Inverted tetrahedron (apex down, base at top) placed 0.35 m above the floor with the apex slightly off-centre (+2 cm X, +1 cm Y). Bar rest-lengths set to actual initial distances so no elastic pre-strain. Loop `num_frames` times: call `sim.relax(steps_per_frame, step_size, noise=0, tol=0)` to run exactly N gradient-descent steps (tol=0 prevents early exit), `copyPositionsBack`, `vid.addFrame`. Uses quasi-static relaxation (no velocity / bounce — consistent with Lipson & Pollack (2000) which also uses gradient descent, not Newtonian dynamics). `k_floor = k_bar ≈ 1.4e6` — soft floor is fine for visual validation.
+
 - [x] **3.7** Implement `VideoRenderer`. `addFrame(robot, sim_time)` renders into an off-screen Raylib window and writes numbered PNGs to a unique `/tmp/golem_video_<ts>/` directory. `finish(output_path)` calls `ffmpeg -y -framerate <fps> -i frame_%04d.png -c:v libx264 -pix_fmt yuv420p <output_path>`, cleans up temp frames on success, and is idempotent. Destructor calls `finish("")` automatically. `frameCount()` accessor for tests. 9/9 CTests passing.
 
 ### Phase 4: The Evolver (Genetic Algorithm)
@@ -60,7 +62,7 @@
 
 ## 2. Project Overview & Dependencies
 
-This project aims to faithfully replicate the 2000 Lipson & Pollack evolutionary robotics experiment ("Golem"). The system will evolve 3D mechanical structures (trusses) and their neural controllers simultaneously to maximize locomotion across an infinite plane.
+This project aims to faithfully replicate the 2000 Lipson & Pollack evolutionary robotics experiment ("Golem", this project: Smeagol). The system will evolve 3D mechanical structures (trusses) and their neural controllers simultaneously to maximize locomotion across an infinite plane.
 
 ### Core Dependencies
 

@@ -1,0 +1,13 @@
+# simulation.yaml – parameters for fall_animation
+
+fps:             30
+num_frames:      50 # 200
+steps_per_frame: 500000 # 10000
+step_size:       1.0e-7 #1e-7
+
+# output resolution
+width:  640
+height: 480
+
+# output video path
+output: /tmp/tetrahedron_fall.mp4
