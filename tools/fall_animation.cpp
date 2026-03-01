@@ -87,6 +87,9 @@ int main(int argc, char* argv[])
 
     for (int f = 0; f < num_frames; ++f)
     {
+        // Apply debug actuators (updates bar rest-length overrides)
+        sim.applyDebugActuators(static_cast<double>(f) / fps);
+
         // tol=0 → never exit early; noise=0 → deterministic
         sim.relax(steps_per_frame, step_size, 0.0, 0.0);
         sim.copyPositionsBack(robot);

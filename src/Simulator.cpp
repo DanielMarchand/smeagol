@@ -34,6 +34,11 @@ Simulator::Simulator(const Robot& robot)
     // Seed PRNG from a fixed seed for reproducible relaxation.
     // The evolver can re-construct the Simulator to get a fresh seed.
     rng_.seed(42);
+
+    // Initialise per-bar rest-length overrides from genotype.
+    rest_lengths_.resize(robot_.bars.size());
+    for (int i = 0; i < static_cast<int>(robot_.bars.size()); ++i)
+        rest_lengths_[i] = robot_.bars[i].rest_length;
 }
 
 // ── §3.1  Energy function ────────────────────────────────────────────────────
@@ -42,19 +47,17 @@ double Simulator::elasticEnergy() const
 {
     double H = 0.0;
 
-    for (const Bar& bar : robot_.bars)
+    for (int i = 0; i < static_cast<int>(robot_.bars.size()); ++i)
     {
-        // Displacement vector between the two connected vertices
+        const Bar& bar = robot_.bars[i];
+        const double L0 = rest_lengths_[i];   // may be overridden by actuator
+
         const Eigen::Vector3d dp =
             positions.row(bar.v2) - positions.row(bar.v1);
 
-        // Current length vs. rest length → extension δ
         const double length = dp.norm();
-        const double delta  = length - bar.rest_length;
-
-        // k = E·A / L₀  (from Bar::stiffness(), but computed inline to
-        // avoid recomputing area() twice when called in a tight loop)
-        const double k = bar.stiffness();
+        const double delta  = length - L0;
+        const double k      = Materials::E * bar.area() / L0;
 
         H += k * delta * delta;
     }
@@ -116,8 +119,11 @@ Eigen::MatrixX3d Simulator::computeGradient() const
     //   ∂H_i/∂p_v1 = -2 k_i δ_i û_i
     //   ∂H_i/∂p_v2 = +2 k_i δ_i û_i
     // where û_i = (p_v2 - p_v1) / ||p_v2 - p_v1||
-    for (const Bar& bar : robot_.bars)
+    for (int i = 0; i < static_cast<int>(robot_.bars.size()); ++i)
     {
+        const Bar& bar = robot_.bars[i];
+        const double L0 = rest_lengths_[i];   // may be overridden by actuator
+
         const Eigen::Vector3d dp =
             positions.row(bar.v2) - positions.row(bar.v1);
         const double length = dp.norm();
@@ -125,8 +131,8 @@ Eigen::MatrixX3d Simulator::computeGradient() const
         // Guard against degenerate (zero-length) bar
         if (length < 1e-14) continue;
 
-        const double delta   = length - bar.rest_length;
-        const double k       = bar.stiffness();
+        const double delta   = length - L0;
+        const double k       = Materials::E * bar.area() / L0;
         const Eigen::Vector3d g_contrib = (2.0 * k * delta / length) * dp;
 
         grad.row(bar.v1) -= g_contrib;
@@ -189,6 +195,17 @@ Simulator::RelaxResult Simulator::relax(int    max_iterations,
     }
 
     return { iter, totalEnergy(), converged };
+}
+
+void Simulator::applyDebugActuators(double sim_time)
+{
+    for (const DebugActuator& da : robot_.debug_actuators)
+    {
+        if (da.bar_idx < 0 || da.bar_idx >= static_cast<int>(robot_.bars.size()))
+            continue;
+        const double base_L0  = robot_.bars[da.bar_idx].rest_length;
+        rest_lengths_[da.bar_idx] = base_L0 + da.deltaLength(sim_time);
+    }
 }
 
 void Simulator::applyFriction(Eigen::MatrixX3d& grad) const

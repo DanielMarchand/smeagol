@@ -292,6 +292,20 @@ void Robot::toYAML(const std::string& path) const
     }
     out << YAML::EndSeq;
 
+    // ── debug_actuators ───────────────────────────────────────────────────
+    out << YAML::Key << "debug_actuators" << YAML::Value;
+    out << YAML::BeginSeq;
+    for (const auto& da : debug_actuators) {
+        out << YAML::BeginMap
+            << YAML::Key << "bar_idx"   << YAML::Value << da.bar_idx
+            << YAML::Key << "amplitude" << YAML::Value << da.amplitude
+            << YAML::Key << "frequency" << YAML::Value << da.frequency
+            << YAML::Key << "phase"     << YAML::Value << da.phase
+            << YAML::Key << "bar_range" << YAML::Value << da.bar_range
+            << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+
     out << YAML::EndMap;
 
     std::ofstream fout(path);
@@ -348,6 +362,19 @@ Robot Robot::fromYAML(const std::string& path)
             node["neuron_idx"].as<int>(),
             node["bar_range"].as<double>()
         );
+    }
+
+    // ── debug_actuators ───────────────────────────────────────────────────
+    if (doc["debug_actuators"]) {
+        for (const auto& node : doc["debug_actuators"]) {
+            r.debug_actuators.emplace_back(
+                node["bar_idx"].as<int>(),
+                node["amplitude"].as<double>(),
+                node["frequency"].as<double>(),
+                node["phase"]     ? node["phase"].as<double>()     : 0.0,
+                node["bar_range"] ? node["bar_range"].as<double>() : 0.01
+            );
+        }
     }
 
     return r;

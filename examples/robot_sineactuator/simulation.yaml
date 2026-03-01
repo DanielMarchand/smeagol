@@ -1,0 +1,12 @@
+# simulation.yaml – sine-actuator body physics test
+#
+
+fps:             30
+num_frames:      50 # 200
+steps_per_frame: 500000 # 10000
+step_size:       1.0e-7 #1e-7
+
+width:  640
+height: 480
+
+output: /tmp/tetrahedron_sineactuator.mp4

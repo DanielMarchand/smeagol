@@ -1,0 +1,43 @@
+# robot.yaml – tetrahedron at rest on the floor, bar 4 (v0→v3, left strut)
+# driven by a sine-wave DebugActuator.
+#
+# Vertices:
+#   0: base front-left
+#   1: base front-right
+#   2: base back-centre
+#   3: apex
+#
+# Bar indices:
+#   0: v0-v1 base front    (L=0.200)
+#   1: v0-v2 base left     (L=0.224)
+#   2: v1-v2 base right    (L=0.224)
+#   3: v0-v3 strut left    (L=0.245)   ← actuated
+#   4: v1-v3 strut right   (L=0.245)
+#   5: v2-v3 strut back    (L=0.224)
+#
+# The actuator oscillates bar 3's rest length by ±amplitude around its
+# nominal value.  This creates an asymmetric force that rocks the apex
+# back and forth without any neural network.
+
+id: 2
+vertices:
+  - [0.00, 0.00, 0.40]   # 0 – base front-left
+  - [0.20, 0.00, 0.40]   # 1 – base front-right
+  - [0.10, 0.20, 0.40]   # 2 – base back-centre
+  - [0.10, 0.10, 0.20]   # 3 – apex
+
+bars:
+  - {v1: 0, v2: 1, rest_length: 0.20000, radius: 0.010}   # 0 – base front
+  - {v1: 0, v2: 2, rest_length: 0.22361, radius: 0.010}   # 1 – base left
+  - {v1: 1, v2: 2, rest_length: 0.22361, radius: 0.010}   # 2 – base right
+  - {v1: 0, v2: 3, rest_length: 0.24495, radius: 0.008}   # 3 – strut left  (actuated)
+  - {v1: 1, v2: 3, rest_length: 0.24495, radius: 0.008}   # 4 – strut right
+  - {v1: 2, v2: 3, rest_length: 0.22361, radius: 0.008}   # 5 – strut back
+
+neurons: []
+actuators: []
+
+debug_actuators:
+  - {bar_idx: 1, amplitude: 0.08, frequency: 0.333, phase: 0.0, bar_range: 0.05}
+  - {bar_idx: 2, amplitude: 0.06, frequency: 0.2, phase: 0.0, bar_range: 0.05}
+  - {bar_idx: 3, amplitude: 0.04, frequency: 0.5, phase: 0.0, bar_range: 0.05}

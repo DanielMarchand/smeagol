@@ -128,20 +128,28 @@ static void test_robotpart_interface()
     CHECK_NEAR(c->frequency, a.frequency, EPS);
 }
 
-static void test_debug_actuators_not_serialised()
+static void test_debug_actuators_serialised()
 {
-    // debug_actuators must survive a clone() but must NOT appear in YAML
+    // debug_actuators must survive a full YAML round-trip
     Robot r;
     r.addVertex(Vertex(0.0, 0.0, 0.0));
     r.addVertex(Vertex(0.1, 0.0, 0.0));
     r.addBar(Bar(0, 1, 0.1));
-    r.debug_actuators.push_back(DebugActuator(0, 0.005, 1.0));
+    r.debug_actuators.push_back(DebugActuator(0, 0.005, 1.0, 0.3, 0.02));
 
-    const std::string tmp = "/tmp/golem_debug_act_serial_test.yaml";
+    const std::string tmp = "/tmp/smeagol_debug_act_serial_test.yaml";
     r.toYAML(tmp);
     Robot r2 = Robot::fromYAML(tmp);
-    // debug_actuators should be empty after a round-trip through YAML
-    CHECK(r2.debug_actuators.empty());
+
+    CHECK(r2.debug_actuators.size() == 1);
+    if (!r2.debug_actuators.empty()) {
+        const auto& da = r2.debug_actuators[0];
+        CHECK(da.bar_idx   == 0);
+        CHECK_NEAR(da.amplitude, 0.005, EPS);
+        CHECK_NEAR(da.frequency, 1.0,   EPS);
+        CHECK_NEAR(da.phase,     0.3,   EPS);
+        CHECK_NEAR(da.bar_range, 0.02,  EPS);
+    }
     std::remove(tmp.c_str());
 }
 
@@ -164,7 +172,7 @@ int main()
     run("Frequency scaling",                       test_frequency_scaling);
     run("Robot::debug_actuators field accessible", test_robot_has_debug_actuators_field);
     run("RobotPart interface (type/typeName/clone)",  test_robotpart_interface);
-    run("debug_actuators not round-tripped in YAML", test_debug_actuators_not_serialised);
+    run("debug_actuators round-tripped in YAML", test_debug_actuators_serialised);
 
     if (g_failures == 0) {
         std::cout << "\nAll DebugActuator tests passed.\n";

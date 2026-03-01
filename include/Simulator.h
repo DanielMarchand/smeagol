@@ -161,6 +161,16 @@ public:
      */
     void applyFriction(Eigen::MatrixX3d& grad) const;
 
+    /**
+     * @brief Apply all DebugActuators in the robot for the given sim time.
+     *
+     * Updates the internal rest-length overrides used by elasticEnergy() and
+     * computeGradient().  Call once per frame before relax().
+     *
+     * @param sim_time  Simulation time [s] passed to DebugActuator::deltaLength().
+     */
+    void applyDebugActuators(double sim_time);
+
     // ── State ─────────────────────────────────────────────────────────────
 
     /**
@@ -184,6 +194,10 @@ public:
 
 private:
     const Robot& robot_;   ///< Topology reference (bars, stiffness, etc.)
+
+    /// Per-bar rest-length overrides.  Initialised from robot_.bars; updated
+    /// by applyDebugActuators() each frame.
+    std::vector<double> rest_lengths_;
 
     /**
      * @brief Compute the N×3 energy gradient matrix.
