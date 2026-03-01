@@ -22,7 +22,9 @@ jobs:
             libxrandr-dev \
             libxi-dev \
             libxcursor-dev \
-            libxinerama-dev
+            libxinerama-dev \
+            xvfb \
+            ffmpeg
 
       # ── raylib (not in Ubuntu 22.04 repos, build from source) ───────────────
       - name: Cache raylib build
@@ -54,3 +56,10 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+      - name: Run examples
+        run: |
+          find examples -name run.sh | sort | while read script; do
+            echo "▶ $script"
+            xvfb-run --auto-servernum bash "$script"
+          done
