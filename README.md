@@ -38,6 +38,57 @@ At $t=0$ the structure is stress-free ($H_\text{elastic} \approx 0$); the only d
 
 ---
 
+## Neural actuation — locomotion preview
+
+![Tetrahedron driven by a 2-neuron anti-phase oscillator](docs/media/tetrahedron_neuralactuator.gif)
+
+A tetrahedron on the floor, controlled by a two-neuron network that drives one strut bar to oscillate ±1 cm every cycle.
+
+### How neurons work in Smeagol
+
+Each `Neuron` is a discrete threshold unit. At every neural tick, all neurons update **in parallel**:
+
+$$a_i^{(t+1)} = \begin{cases} 1 & \text{if } \sum_j w_{ij}\, a_j^{(t)} \geq \theta_i \\ 0 & \text{otherwise} \end{cases}$$
+
+where $w_{ij}$ is the synapse weight from neuron $j$ to neuron $i$ and $\theta_i$ is neuron $i$'s threshold.  
+The parallel (synchronous) update means each neuron reads the **previous** activations of all its inputs — there are no circular dependency issues even with recurrent connections.
+
+An `Actuator` maps a neuron's binary output to a bar's rest length:
+
+$$L_{0,i}^{(t+1)} = L_{0,i}^{(t)} + a_k^{(t+1)} \cdot r_i$$
+
+where $r_i$ is the `bar_range` (signed, in metres). When the neuron fires the bar is stretched or compressed by exactly $|r_i|$; when it is silent the bar keeps its previous rest length. Actuation is clamped so no single step can change a rest length by more than 1 cm.
+
+The neural overlay rendered above each robot colours neurons **red** when firing and grey when silent. Synapse lines are **blue** for excitatory weights and **red** for inhibitory weights; actuator connections are drawn in **green**.
+
+### This example — anti-phase oscillator
+
+The network contains exactly two neurons with cross-coupling only (no self-weights):
+
+```
+Neuron 0 ──w=1──► Neuron 1
+Neuron 1 ──w=1──► Neuron 0
+         threshold = 0.5 (both)
+```
+
+Neuron 0 is primed active at $t=0$; neuron 1 starts silent. Because each neuron fires when it receives the other's previous activation and only then, they alternate every tick:
+
+| Tick | $a_0$ | $a_1$ |
+|------|--------|--------|
+| 0    | 1      | 0      |
+| 1    | 0      | 1      |
+| 2    | 1      | 0      |
+| …    | …      | …      |
+
+Two actuators are wired to the same bar (left strut, bar 3):
+
+- **Actuator 0** — neuron 0 → bar 3, `bar_range = +0.010 m` (strut lengthens when neuron 0 fires)
+- **Actuator 1** — neuron 1 → bar 3, `bar_range = −0.010 m` (strut shortens when neuron 1 fires)
+
+The opposing signs mean the strut oscillates ±1 cm around its natural length with no cumulative drift. The quasi-static physics engine responds by rocking the apex back and forth, producing a visible periodic deformation.
+
+---
+
 ## Architecture
 
 The codebase has four layers: **data**, **physics**, **rendering**, and (planned) **evolution**.
@@ -196,6 +247,8 @@ See `examples/robot_fall/` for a worked example with an upside-down tetrahedron.
 | `examples/robot_visualize/` | Interactive view + single snapshot of a robot |
 | `examples/deformation_series/` | Energy sanity-check: elastic energy rises from ~0 as a vertex is displaced |
 | `examples/robot_fall/` | Fall animation: inverted tetrahedron descends under gravity and tips over |
+| `examples/robot_sineactuator/` | Sinusoidal actuator: bar length driven by a `sin(ωt)` debug waveform |
+| `examples/robot_neuralactuator/` | Neural actuation: 2-neuron anti-phase oscillator drives a strut bar ±1 cm per tick |
 
 ---
 
