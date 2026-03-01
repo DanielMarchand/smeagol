@@ -52,5 +52,5 @@ target_link_libraries(snapshot_robot PRIVATE smeagol_core)
 add_executable(deformation_series tools/deformation_series.cpp)
 target_link_libraries(deformation_series PRIVATE smeagol_core)
 
-add_executable(fall_animation tools/fall_animation.cpp)
-target_link_libraries(fall_animation PRIVATE smeagol_core)
+add_executable(run_simulation tools/run_simulation.cpp)
+target_link_libraries(run_simulation PRIVATE smeagol_core)

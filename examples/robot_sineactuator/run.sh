@@ -14,11 +14,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BINARY="$REPO_ROOT/build/fall_animation"
+BINARY="$REPO_ROOT/build/run_simulation"
 
 if [[ ! -x "$BINARY" ]]; then
     echo "Binary not found: $BINARY"
-    echo "Run:  cmake --build $REPO_ROOT/build --target fall_animation"
+    echo "Run:  cmake --build $REPO_ROOT/build --target run_simulation"
     exit 1
 fi
 

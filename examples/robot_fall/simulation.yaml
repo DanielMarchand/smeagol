@@ -1,4 +1,4 @@
-# simulation.yaml – parameters for fall_animation
+# simulation.yaml – parameters for run_simulation
 
 fps:             30
 num_frames:      50 # 200

@@ -1,15 +1,15 @@
 /**
- * fall_animation.cpp
+ * run_simulation.cpp
  *
  * Loads a robot and simulation parameters from YAML, runs quasi-static
  * gradient descent frame-by-frame, and produces an MP4.
  *
  * Usage:
- *   fall_animation <robot.yaml> <simulation.yaml> [output.mp4]
+ *   run_simulation <robot.yaml> <simulation.yaml> [output.mp4]
  *
  * Requires a display server.  On headless machines:
  *   Xvfb :99 -screen 0 1280x720x24 &
- *   DISPLAY=:99 fall_animation robot.yaml simulation.yaml out.mp4
+ *   DISPLAY=:99 run_simulation robot.yaml simulation.yaml out.mp4
  *
  * Physics note: quasi-static gradient descent (Lipson & Pollack 2000).
  * No velocity or momentum; motion traces the energy-minimisation path.
@@ -29,7 +29,7 @@ int main(int argc, char* argv[])
 {
     if (argc < 3)
     {
-        std::cerr << "Usage: fall_animation <robot.yaml> <simulation.yaml> [output.mp4]\n";
+        std::cerr << "Usage: run_simulation <robot.yaml> <simulation.yaml> [output.mp4]\n";
         return 1;
     }
 

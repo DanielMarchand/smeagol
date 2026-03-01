@@ -216,12 +216,12 @@ ctest --test-dir build --output-on-failure
 | `visualize_robot` | Interactive 3D viewer (orbital camera) |
 | `snapshot_robot` | Renders a single PNG from a YAML robot |
 | `deformation_series` | Displaces one vertex incrementally; prints energy table + PNG per step |
-| `fall_animation` | Runs quasi-static simulation from YAML and produces an MP4 |
+| `run_simulation` | Runs quasi-static simulation from YAML and produces an MP4 |
 
-### `fall_animation`
+### `run_simulation`
 
 ```bash
-fall_animation <robot.yaml> <simulation.yaml>
+run_simulation <robot.yaml> <simulation.yaml>
 ```
 
 `simulation.yaml` controls all physics and output parameters:
