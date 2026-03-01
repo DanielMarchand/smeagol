@@ -1,0 +1,56 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── apt dependencies ────────────────────────────────────────────────────
+      - name: Install Eigen3 & yaml-cpp
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            libeigen3-dev \
+            libyaml-cpp-dev \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxinerama-dev
+
+      # ── raylib (not in Ubuntu 22.04 repos, build from source) ───────────────
+      - name: Cache raylib build
+        id: cache-raylib
+        uses: actions/cache@v4
+        with:
+          path: /tmp/raylib-install
+          key: raylib-5.0-ubuntu-22.04
+
+      - name: Build & install raylib
+        if: steps.cache-raylib.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 5.0 https://github.com/raysan5/raylib.git /tmp/raylib_src
+          cmake -S /tmp/raylib_src -B /tmp/raylib_src/build \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_INSTALL_PREFIX=/tmp/raylib-install
+          cmake --build /tmp/raylib_src/build -j$(nproc)
+          cmake --install /tmp/raylib_src/build
+
+      - name: Add raylib to CMAKE_PREFIX_PATH
+        run: echo "CMAKE_PREFIX_PATH=/tmp/raylib-install" >> $GITHUB_ENV
+
+      # ── project ─────────────────────────────────────────────────────────────
+      - name: Configure
+        run: cmake -B build
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

@@ -1,0 +1,78 @@
+# ──────────────────────────────────────────────
+# Build output
+# ──────────────────────────────────────────────
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.make
+install_manifest.txt
+
+# ──────────────────────────────────────────────
+# Compiled objects & binaries
+# ──────────────────────────────────────────────
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.pdb
+*.ilk
+*.exp
+
+# ──────────────────────────────────────────────
+# Generated / exported assets
+# ──────────────────────────────────────────────
+runs/
+videos/
+tmp_frames/
+*.mp4
+*.png
+*.yaml
+# Keep example YAMLs if you add them:
+!examples/**/*.yaml
+
+# ──────────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+.eggs/
+.venv/
+venv/
+env/
+.env
+*.ipynb_checkpoints/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+site/
+
+# ──────────────────────────────────────────────
+# Editors / IDEs
+# ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.user
+*.suo
+*.sln.docstates
+*.vcxproj.user
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
