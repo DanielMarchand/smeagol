@@ -75,5 +75,5 @@ jobs:
         run: |
           find examples -name 'run.sh' | sort | while read script; do
             echo "▶ $script"
-            xvfb-run --auto-servernum bash "$script"
+            xvfb-run --auto-servernum bash "$script" < /dev/null
           done
