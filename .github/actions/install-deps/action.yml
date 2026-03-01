@@ -1,0 +1,21 @@
+name: Install dependencies
+description: Install all system dependencies for Smeagol
+
+runs:
+  using: composite
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y \
+          libeigen3-dev \
+          libyaml-cpp-dev \
+          libgl1-mesa-dev \
+          libx11-dev \
+          libxrandr-dev \
+          libxi-dev \
+          libxcursor-dev \
+          libxinerama-dev \
+          xvfb \
+          ffmpeg
