@@ -22,6 +22,7 @@ find_package(raylib 4.0 REQUIRED)
 add_library(golem_core STATIC
     src/Robot.cpp
     src/SceneRenderer.cpp
+    src/SnapshotRenderer.cpp
 )
 target_include_directories(golem_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(golem_core PUBLIC Eigen3::Eigen yaml-cpp raylib)
@@ -42,3 +43,6 @@ target_link_libraries(validate_robot PRIVATE golem_core)
 
 add_executable(visualize_robot tools/visualize_robot.cpp)
 target_link_libraries(visualize_robot PRIVATE golem_core)
+
+add_executable(snapshot_robot tools/snapshot_robot.cpp)
+target_link_libraries(snapshot_robot PRIVATE golem_core)

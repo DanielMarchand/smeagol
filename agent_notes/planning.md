@@ -16,7 +16,7 @@
 ### Phase 2: Shared Rendering Engine (Raylib)
 
 - [x] **2.1** Implement `SceneRenderer`. Set up a fixed 3D orbital camera, a ground plane (`DrawGrid`), and the `drawRobot()` routine.
-- [ ] **2.2** Implement `SnapshotRenderer`. Add logic to render a single frame and use Raylib's `TakeScreenshot()` to output a still image. Link this to `Robot::saveDebugImage()`.
+- [x] **2.2** Implement `SnapshotRenderer`. Add logic to render a single frame and use Raylib's `TakeScreenshot()` to output a still image. Link this to `Robot::saveDebugImage()`.
 - [ ] **2.3** Implement `VideoRenderer`. Add logic to capture a sequence of frames during a simulation loop. Add a destructor/finish method that invokes `std::system("ffmpeg -framerate 30 -i tmp/%04d.png out.mp4")` to compile the video.
 
 ### Phase 3: The Physics & Neural Simulator

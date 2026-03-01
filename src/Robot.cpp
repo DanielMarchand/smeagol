@@ -1,4 +1,5 @@
 #include "Robot.h"
+#include "SnapshotRenderer.h"
 
 #include <yaml-cpp/yaml.h>
 
@@ -210,6 +211,14 @@ bool Robot::isValid() const
     }
 
     return true;
+}
+
+// ── Debug image ───────────────────────────────────────────────────────────────
+
+void Robot::saveDebugImage(const std::string& path) const
+{
+    SnapshotRenderer snap;
+    snap.render(*this, path);
 }
 
 // ── YAML I/O ──────────────────────────────────────────────────────────────────

@@ -114,6 +114,15 @@ public:
     void toYAML(const std::string& path) const;
     static Robot fromYAML(const std::string& path);
 
+    /**
+     * Render a still PNG of the robot's current topology for debugging.
+     * Requires a display server (X11/Wayland).  Uses SnapshotRenderer
+     * internally so the window opens and closes automatically.
+     *
+     * @param path  Output file path (PNG).
+     */
+    void saveDebugImage(const std::string& path) const;
+
     // ── Data ──────────────────────────────────────────────────────────────
 
     ID id;                         ///< Unique individual identifier

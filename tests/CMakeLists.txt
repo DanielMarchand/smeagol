@@ -17,3 +17,7 @@ add_test(NAME YAMLRoundtrip COMMAND test_yaml)
 add_executable(test_scene_renderer test_scene_renderer.cpp)
 target_link_libraries(test_scene_renderer PRIVATE golem_core)
 add_test(NAME SceneRenderer COMMAND test_scene_renderer)
+
+add_executable(test_snapshot test_snapshot.cpp)
+target_link_libraries(test_snapshot PRIVATE golem_core)
+add_test(NAME SnapshotRenderer COMMAND test_snapshot)
