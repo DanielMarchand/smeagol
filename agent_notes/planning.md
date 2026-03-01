@@ -17,7 +17,6 @@
 
 - [x] **2.1** Implement `SceneRenderer`. Set up a fixed 3D orbital camera, a ground plane (`DrawGrid`), and the `drawRobot()` routine.
 - [x] **2.2** Implement `SnapshotRenderer`. Add logic to render a single frame and use Raylib's `TakeScreenshot()` to output a still image. Link this to `Robot::saveDebugImage()`.
-- [ ] **2.3** Implement `VideoRenderer`. Add logic to capture a sequence of frames during a simulation loop. Add a destructor/finish method that invokes `std::system("ffmpeg -framerate 30 -i tmp/%04d.png out.mp4")` to compile the video.
 
 ### Phase 3: The Physics & Neural Simulator
 
@@ -33,6 +32,7 @@
 - [ ] **3.4** Neural Network Tick. Implement the discrete loop updating neuron activations based on thresholds and synapse coefficients.
 - [ ] **3.5** Actuator Coupling. Update the target resting length ($l_i$) of bars attached to actuators based on neuron output. Clamp the change to $\le 1$ cm per cycle.
 - [ ] **3.6** Fitness Wrapper. Implement `evaluate(Robot)`, running the physics/neural loop for exactly 12 cycles and returning the net CoM Euclidean distance.
+- [ ] **3.7** Implement `VideoRenderer`. Add logic to capture a sequence of frames driven by the simulation tick loop. Add a destructor/finish method that invokes `std::system("ffmpeg -framerate 30 -i tmp/%04d.png out.mp4")` to compile the video. *(Deferred from Phase 2 — requires the simulator loop interface to be stable first.)*
 
 ### Phase 4: The Evolver (Genetic Algorithm)
 

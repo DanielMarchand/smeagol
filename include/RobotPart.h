@@ -14,7 +14,7 @@ class RobotPart
 {
 public:
     /// Stable integer tag – avoids dynamic_cast in hot paths.
-    enum class Type { Vertex, Bar, Neuron, Actuator };
+    enum class Type { Vertex, Bar, Neuron, Actuator, DebugActuator };
 
     virtual ~RobotPart() = default;
 

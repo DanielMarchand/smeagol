@@ -4,6 +4,7 @@
 #include "Bar.h"
 #include "Neuron.h"
 #include "Actuator.h"
+#include "DebugActuator.h"
 #include "Materials.h"
 
 #include <Eigen/Core>
@@ -131,6 +132,13 @@ public:
     std::vector<Bar>      bars;
     std::vector<Neuron>   neurons;
     std::vector<Actuator> actuators;
+
+    /**
+     * Debug-only actuators driven by a sine wave instead of a neuron.
+     * Not serialised to YAML.  Used to manually exercise the physics
+     * simulator before the neural controller is implemented.
+     */
+    std::vector<DebugActuator> debug_actuators;
 
 private:
     static ID s_next_id;           ///< Auto-incrementing ID counter
