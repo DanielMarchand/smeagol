@@ -3,6 +3,7 @@
 #include "Robot.h"
 #include <raylib.h>
 #include <string>
+#include <vector>
 
 /**
  * @brief Base rendering class; owns the Raylib window and shared scene setup.
@@ -109,6 +110,29 @@ protected:
                    float         vertex_radius = 0.012f,
                    Color         vertex_color  = SKYBLUE,
                    Color         bar_color     = LIGHTGRAY);
+
+    /**
+     * Draw a neural-network overlay above the robot.
+     *
+     * Neurons are laid out in a horizontal ring above the robot's centre of
+     * mass.  Synapse lines are drawn first (so spheres appear on top):
+     *   - Blue  = positive (excitatory) weight
+     *   - Red   = negative (inhibitory) weight
+     * Neuron spheres:
+     *   - Bright red   = active  (activation value > 0.5)
+     *   - Dark grey    = silent
+     * Actuator connections:
+     *   - Bright green line from neuron sphere to the midpoint of the
+     *     actuated bar (using Robot::bars and Robot::actuators).
+     *
+     * Must be called inside a BeginMode3D / EndMode3D block.
+     *
+     * @param robot       Robot topology (neurons, actuators, bar geometry).
+     * @param activations Runtime activation values from Simulator::activations_.
+     *                    If shorter than robot.neurons, missing entries = 0.
+     */
+    void drawNeuralOverlay(const Robot&               robot,
+                           const std::vector<double>& activations);
 
     // ── Data ──────────────────────────────────────────────────────────────
 

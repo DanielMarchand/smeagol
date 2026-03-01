@@ -10,6 +10,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -48,6 +49,13 @@ VideoRenderer::~VideoRenderer()
 
 void VideoRenderer::addFrame(const Robot& robot, double sim_time)
 {
+    addFrame(robot, sim_time, {});
+}
+
+void VideoRenderer::addFrame(const Robot&               robot,
+                             double                     sim_time,
+                             const std::vector<double>& activations)
+{
     // Centre camera on robot CoM (convert sim Z-up → Raylib Y-up)
     const Eigen::Vector3d com = robot.centerOfMass();
     const Vector3 rl = toRaylib(com.x(), com.y(), com.z());
@@ -59,15 +67,27 @@ void VideoRenderer::addFrame(const Robot& robot, double sim_time)
         BeginMode3D(m_camera);
             drawFloor(30, 0.1f);
             drawRobot(robot);
+            if (!activations.empty())
+                drawNeuralOverlay(robot, activations);
         EndMode3D();
 
         // HUD overlay
-        DrawText(TextFormat("t=%.3fs  frame=%d  v=%d  b=%d",
-                            sim_time,
-                            frame_count_,
-                            (int)robot.vertices.size(),
-                            (int)robot.bars.size()),
-                 10, 10, 16, RAYWHITE);
+        const int active_n = [&]{
+            int n = 0;
+            for (double a : activations) if (a > 0.5) ++n;
+            return n;
+        }();
+        const std::string hud = activations.empty()
+            ? TextFormat("t=%.3fs  frame=%d  v=%d  b=%d",
+                         sim_time, frame_count_,
+                         (int)robot.vertices.size(),
+                         (int)robot.bars.size())
+            : TextFormat("t=%.3fs  frame=%d  v=%d  b=%d  neurons=%d/%d active",
+                         sim_time, frame_count_,
+                         (int)robot.vertices.size(),
+                         (int)robot.bars.size(),
+                         active_n, (int)activations.size());
+        DrawText(hud.c_str(), 10, 10, 16, RAYWHITE);
     EndDrawing();
 
     // Save frame as numbered PNG

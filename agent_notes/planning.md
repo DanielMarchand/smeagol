@@ -29,8 +29,8 @@
 - [x] **3.3** Environment Physics.
   - Collision: Add high penalty energy if a vertex $z < 0$.
   - Friction: Lock $x,y$ movement if the lateral force derivative is lower than the static friction coefficient times normal force.
-- [ ] **3.4** Neural Network Tick. Implement the discrete loop updating neuron activations based on thresholds and synapse coefficients.
-- [ ] **3.5** Actuator Coupling. Update the target resting length ($l_i$) of bars attached to actuators based on neuron output. Clamp the change to $\le 1$ cm per cycle.
+- [x] **3.4** Neural Network Tick. Implement the discrete loop updating neuron activations based on thresholds and synapse coefficients.
+- [x] **3.5** Actuator Coupling. Update the target resting length ($l_i$) of bars attached to actuators based on neuron output. Clamp the change to $\le 1$ cm per cycle.
 - [ ] **3.6** Fitness Wrapper. Implement `evaluate(Robot)`, running the physics/neural loop for exactly 12 cycles and returning the net CoM Euclidean distance.
 - [x] **3.8** `fall_animation` tool. Inverted tetrahedron (apex down, base at top) placed 0.35 m above the floor with the apex slightly off-centre (+2 cm X, +1 cm Y). Bar rest-lengths set to actual initial distances so no elastic pre-strain. Loop `num_frames` times: call `sim.relax(steps_per_frame, step_size, noise=0, tol=0)` to run exactly N gradient-descent steps (tol=0 prevents early exit), `copyPositionsBack`, `vid.addFrame`. Uses quasi-static relaxation (no velocity / bounce — consistent with Lipson & Pollack (2000) which also uses gradient descent, not Newtonian dynamics). `k_floor = k_bar ≈ 1.4e6` — soft floor is fine for visual validation.
 

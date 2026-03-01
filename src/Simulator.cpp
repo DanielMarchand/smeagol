@@ -1,5 +1,6 @@
 #include "Simulator.h"
 
+#include <algorithm>
 #include <random>
 #include <stdexcept>
 
@@ -39,6 +40,11 @@ Simulator::Simulator(const Robot& robot)
     rest_lengths_.resize(robot_.bars.size());
     for (int i = 0; i < static_cast<int>(robot_.bars.size()); ++i)
         rest_lengths_[i] = robot_.bars[i].rest_length;
+
+    // Initialise neuron activations from genotype's stored activation field.
+    activations_.resize(robot_.neurons.size());
+    for (int i = 0; i < static_cast<int>(robot_.neurons.size()); ++i)
+        activations_[i] = robot_.neurons[i].activation;
 }
 
 // ── §3.1  Energy function ────────────────────────────────────────────────────
@@ -205,6 +211,48 @@ void Simulator::applyDebugActuators(double sim_time)
             continue;
         const double base_L0  = robot_.bars[da.bar_idx].rest_length;
         rest_lengths_[da.bar_idx] = base_L0 + da.deltaLength(sim_time);
+    }
+}
+
+// ── §3.4  Neural tick ─────────────────────────────────────────────────────────
+
+void Simulator::tickNeural()
+{
+    const int N = static_cast<int>(robot_.neurons.size());
+    if (N == 0) return;
+
+    // Snapshot activations before the update (parallel evaluation).
+    const std::vector<double> prev = activations_;
+
+    for (int i = 0; i < N; ++i)
+    {
+        const Neuron& n  = robot_.neurons[i];
+        const int     sw = static_cast<int>(n.synapse_weights.size());
+
+        double weighted_sum = 0.0;
+        for (int j = 0; j < N && j < sw; ++j)
+            weighted_sum += n.synapse_weights(j) * prev[j];
+
+        activations_[i] = (weighted_sum >= n.threshold) ? 1.0 : 0.0;
+    }
+}
+
+// ── §3.5  Actuator coupling ────────────────────────────────────────────────
+
+void Simulator::applyActuators()
+{
+    constexpr double MAX_DELTA = 0.01;  // 1 cm per cycle (paper spec)
+
+    for (const Actuator& a : robot_.actuators)
+    {
+        if (a.bar_idx    < 0 || a.bar_idx    >= static_cast<int>(rest_lengths_.size())) continue;
+        if (a.neuron_idx < 0 || a.neuron_idx >= static_cast<int>(activations_.size())) continue;
+
+        const double delta = std::clamp(
+            activations_[a.neuron_idx] * a.bar_range,
+            -MAX_DELTA, +MAX_DELTA);
+
+        rest_lengths_[a.bar_idx] += delta;
     }
 }
 

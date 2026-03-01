@@ -74,6 +74,22 @@ public:
     void addFrame(const Robot& robot, double sim_time = 0.0);
 
     /**
+     * @brief Render with a neural-network overlay.
+     *
+     * Identical to addFrame(robot, sim_time) but also calls
+     * drawNeuralOverlay() with the supplied activation vector.
+     * Use this overload when running a neural simulation so that neuron
+     * states are visible in the video.
+     *
+     * @param robot       Robot to draw.
+     * @param sim_time    Simulation time [s].
+     * @param activations Neuron activations from Simulator::activations_.
+     */
+    void addFrame(const Robot&               robot,
+                  double                     sim_time,
+                  const std::vector<double>& activations);
+
+    /**
      * @brief Compile accumulated frames into an MP4 and clean up.
      *
      * Invokes:

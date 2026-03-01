@@ -1,6 +1,7 @@
 #include "SceneRenderer.h"
 #include <rlgl.h>
 #include <cmath>
+#include <vector>
 
 // ── Construction / destruction ────────────────────────────────────────────────
 
@@ -162,5 +163,69 @@ void SceneRenderer::drawRobot(const Robot& robot,
     for (const auto& vertex : robot.vertices) {
         Vector3 rp = toRaylib(vertex.pos.x(), vertex.pos.y(), vertex.pos.z());
         DrawSphere(rp, vertex_radius, vertex_color);
+    }
+}
+
+// ── Neural overlay ────────────────────────────────────────────────────────────
+
+void SceneRenderer::drawNeuralOverlay(const Robot&               robot,
+                                      const std::vector<double>& activations)
+{
+    const int N = static_cast<int>(robot.neurons.size());
+    if (N == 0) return;
+
+    // ── Layout: ring of neurons above the robot CoM ───────────────────────
+    const Eigen::Vector3d com = robot.centerOfMass();
+    const float ring_r        = std::max(0.07f, N * 0.022f);
+    const float lift          = 0.30f;   // above robot CoM in sim-Z
+
+    std::vector<Vector3> npos(N);
+    for (int i = 0; i < N; ++i)
+    {
+        const float angle = (2.0f * 3.14159265f / static_cast<float>(N)) * i;
+        const double nx = com.x() + ring_r * std::cos(angle);
+        const double ny = com.y() + ring_r * std::sin(angle);
+        const double nz = com.z() + lift;
+        npos[i] = toRaylib(nx, ny, nz);
+    }
+
+    // ── Synapse connections (draw first so spheres sit on top) ────────────
+    for (int i = 0; i < N; ++i)
+    {
+        const Eigen::VectorXd& w = robot.neurons[i].synapse_weights;
+        const int sw = static_cast<int>(w.size());
+        for (int j = 0; j < N && j < sw; ++j)
+        {
+            if (std::abs(w(j)) < 0.01) continue;
+            Color c = (w(j) > 0.0)
+                ? Color{100, 149, 237, 200}   // cornflower blue  = excitatory
+                : Color{220,  70,  70, 200};  // soft red         = inhibitory
+            DrawLine3D(npos[i], npos[j], c);
+        }
+    }
+
+    // ── Actuator connections: neuron sphere → bar midpoint ────────────────
+    for (const auto& a : robot.actuators)
+    {
+        if (a.neuron_idx < 0 || a.neuron_idx >= N) continue;
+        if (a.bar_idx    < 0 || a.bar_idx    >= static_cast<int>(robot.bars.size())) continue;
+
+        const Bar& bar = robot.bars[a.bar_idx];
+        const Eigen::Vector3d mid =
+            0.5 * (robot.vertices[bar.v1].pos + robot.vertices[bar.v2].pos);
+        DrawLine3D(npos[a.neuron_idx],
+                   toRaylib(mid.x(), mid.y(), mid.z()),
+                   Color{50, 220, 50, 220});   // bright green
+    }
+
+    // ── Neuron spheres (drawn last → on top of all lines) ─────────────────
+    for (int i = 0; i < N; ++i)
+    {
+        const bool active = (i < static_cast<int>(activations.size()))
+                            && (activations[i] > 0.5);
+        const Color c = active
+            ? Color{255,  50,  50, 255}   // bright red  = firing
+            : Color{ 70,  70,  70, 255};  // dark grey   = silent
+        DrawSphere(npos[i], 0.016f, c);
     }
 }

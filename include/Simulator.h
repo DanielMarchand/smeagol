@@ -171,6 +171,41 @@ public:
      */
     void applyDebugActuators(double sim_time);
 
+    // ── §3.4  Neural tick ─────────────────────────────────────────────────
+
+    /**
+     * @brief Run one discrete update of all neuron activations.
+     *
+     * For each neuron i:
+     *
+     *   weighted_sum = Σ_j  synapse_weights[j] · activations_[j]
+     *   activations_[i] = (weighted_sum ≥ threshold) ? 1.0 : 0.0
+     *
+     * All neurons are evaluated from the *previous* activation vector
+     * (parallel update), so the order of neurons does not matter.
+     * Neurons with fewer synapse_weights entries than the network size
+     * have the missing weights treated as 0.
+     *
+     * No-op when the robot has no neurons.
+     */
+    void tickNeural();
+
+    // ── §3.5  Actuator coupling ───────────────────────────────────────────
+
+    /**
+     * @brief Update bar rest-lengths from the current neuron activations.
+     *
+     * For each Actuator a:
+     *
+     *   Δl = clamp(activations_[a.neuron_idx] · a.bar_range, −0.01, +0.01)
+     *   rest_lengths_[a.bar_idx] += Δl
+     *
+     * The ±1 cm clamp enforces the paper's hard limit on length change per
+     * neural cycle.  Must be called after tickNeural() to use the freshest
+     * activations.  No-op when the robot has no actuators.
+     */
+    void applyActuators();
+
     // ── State ─────────────────────────────────────────────────────────────
 
     /**
@@ -187,6 +222,22 @@ public:
     Eigen::VectorXd vertex_masses;
 
     /**
+     * Runtime neuron activations, length == robot.neurons.size().
+     * Each entry is 0.0 (quiescent) or 1.0 (firing).  Initialised to 0;
+     * updated by tickNeural() and readable/settable by external callers
+     * (e.g. evolver, tests) to prime a network's initial state.
+     */
+    std::vector<double> activations_;
+
+    /**
+     * Per-bar rest-length overrides, length == robot.bars.size().
+     * Initialised from robot_.bars at construction; updated each frame by
+     * applyDebugActuators() and applyActuators().  Exposed publicly so that
+     * external callers can inspect or reset the lengths between evaluations.
+     */
+    std::vector<double> rest_lengths_;
+
+    /**
      * Copy current positions back into the Robot's vertex list.
      * Useful for post-simulation inspection or rendering.
      */
@@ -194,10 +245,6 @@ public:
 
 private:
     const Robot& robot_;   ///< Topology reference (bars, stiffness, etc.)
-
-    /// Per-bar rest-length overrides.  Initialised from robot_.bars; updated
-    /// by applyDebugActuators() each frame.
-    std::vector<double> rest_lengths_;
 
     /**
      * @brief Compute the N×3 energy gradient matrix.

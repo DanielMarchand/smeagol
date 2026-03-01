@@ -87,18 +87,30 @@ int main(int argc, char* argv[])
 
     for (int f = 0; f < num_frames; ++f)
     {
-        // Apply debug actuators (updates bar rest-length overrides)
+        // Neural cycle: tick network, then update bar rest-lengths
+        sim.tickNeural();
+        sim.applyActuators();
+
+        // Apply debug actuators (sine-wave driven, time-based)
         sim.applyDebugActuators(static_cast<double>(f) / fps);
 
         // tol=0 → never exit early; noise=0 → deterministic
         sim.relax(steps_per_frame, step_size, 0.0, 0.0);
         sim.copyPositionsBack(robot);
-        vid.addFrame(robot, static_cast<double>(f) / fps);
+        vid.addFrame(robot, static_cast<double>(f) / fps, sim.activations_);
 
-        if (f % fps == 0)
+        if (f % fps == 0) {
             std::cout << "  t=" << static_cast<double>(f) / fps
                       << "s  E_elastic=" << sim.elasticEnergy()
-                      << "  E_total="    << sim.totalEnergy() << "\n";
+                      << "  E_total="    << sim.totalEnergy();
+            if (!sim.activations_.empty()) {
+                std::cout << "  neurons=[";
+                for (std::size_t i = 0; i < sim.activations_.size(); ++i)
+                    std::cout << (i ? "," : "") << sim.activations_[i];
+                std::cout << "]";
+            }
+            std::cout << "\n";
+        }
     }
 
     const bool ok = vid.finish(out_path);

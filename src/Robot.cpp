@@ -270,8 +270,9 @@ void Robot::toYAML(const std::string& path) const
     out << YAML::BeginSeq;
     for (const auto& n : neurons) {
         out << YAML::BeginMap;
-        out << YAML::Key << "threshold" << YAML::Value << n.threshold;
-        out << YAML::Key << "weights"   << YAML::Value;
+        out << YAML::Key << "threshold"  << YAML::Value << n.threshold;
+        out << YAML::Key << "activation" << YAML::Value << n.activation;
+        out << YAML::Key << "weights"    << YAML::Value;
         out << YAML::Flow << YAML::BeginSeq;
         for (int i = 0; i < n.synapse_weights.size(); ++i)
             out << n.synapse_weights[i];
@@ -335,19 +336,30 @@ Robot Robot::fromYAML(const std::string& path)
     }
 
     // ── bars ──────────────────────────────────────────────────────────────
+    // rest_length is optional; if absent it is computed from the initial
+    // vertex positions using Eigen so the bar starts at its natural length.
     for (const auto& node : doc["bars"]) {
-        r.bars.emplace_back(
-            node["v1"].as<int>(),
-            node["v2"].as<int>(),
-            node["rest_length"].as<double>(),
-            node["radius"].as<double>()
-        );
+        const int    v1     = node["v1"].as<int>();
+        const int    v2     = node["v2"].as<int>();
+        const double radius = node["radius"].as<double>();
+
+        double rest_length = 0.0;
+        if (node["rest_length"] && node["rest_length"].as<double>() != 0.0) {
+            rest_length = node["rest_length"].as<double>();
+        } else if (v1 >= 0 && v1 < static_cast<int>(r.vertices.size()) &&
+                   v2 >= 0 && v2 < static_cast<int>(r.vertices.size())) {
+            rest_length = (r.vertices[v2].pos - r.vertices[v1].pos).norm();
+        }
+        // if indices are out of range, rest_length stays 0.0;
+        // Robot::validate() will catch the bad index before the robot is used
+        r.bars.emplace_back(v1, v2, rest_length, radius);
     }
 
     // ── neurons ───────────────────────────────────────────────────────────
     for (const auto& node : doc["neurons"]) {
         Neuron n;
-        n.threshold = node["threshold"].as<double>();
+        n.threshold  = node["threshold"].as<double>();
+        n.activation = node["activation"] ? node["activation"].as<double>() : 0.0;
         const auto& w_node = node["weights"];
         n.synapse_weights.resize(static_cast<int>(w_node.size()));
         for (std::size_t i = 0; i < w_node.size(); ++i)

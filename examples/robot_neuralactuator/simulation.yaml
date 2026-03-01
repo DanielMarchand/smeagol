@@ -1,0 +1,23 @@
+# simulation.yaml – 2-neuron anti-phase oscillator test
+#
+# Each frame = one neural tick + relax.
+# The network has period 2, so two consecutive frames = one full oscillation.
+#
+# Predicted stdout (per fps=10 checkpoint, every 10 neural cycles):
+#   t=0s  neurons=[0,1]   bar 3 has just SHORTENED  (−1 cm from L0)
+#   t=1s  neurons=[1,0]   bar 3 has just LENGTHENED  (+1 cm from contracted)
+#   t=2s  neurons=[0,1]   ...repeats
+#
+# With fps=10 and num_frames=60 you get a 6-second video showing 30 full
+# oscillation cycles.  steps_per_frame=5000 is plenty for a 4-vertex static
+# tetrahedron to relax between neural ticks.
+
+fps:             10
+num_frames:      60
+steps_per_frame: 5000
+step_size:       1.0e-7
+
+width:  640
+height: 480
+
+output: /tmp/tetrahedron_neuralactuator.mp4

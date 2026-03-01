@@ -30,6 +30,10 @@ add_executable(test_simulator test_simulator.cpp)
 target_link_libraries(test_simulator PRIVATE smeagol_core)
 add_test(NAME Simulator COMMAND test_simulator)
 
+add_executable(test_neural_actuator test_neural_actuator.cpp)
+target_link_libraries(test_neural_actuator PRIVATE smeagol_core)
+add_test(NAME NeuralActuator COMMAND test_neural_actuator)
+
 add_executable(test_video_renderer test_video_renderer.cpp)
 target_link_libraries(test_video_renderer PRIVATE smeagol_core)
 add_test(NAME VideoRenderer COMMAND test_video_renderer)
