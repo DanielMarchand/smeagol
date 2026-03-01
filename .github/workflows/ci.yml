@@ -55,7 +55,7 @@ jobs:
         run: cmake --build build -j$(nproc)
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: xvfb-run --auto-servernum ctest --test-dir build --output-on-failure
 
       - name: Run examples
         run: |
