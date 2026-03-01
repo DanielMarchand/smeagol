@@ -16,6 +16,16 @@ find_package(yaml-cpp REQUIRED)
 find_package(raylib 4.0 REQUIRED)
 
 # ──────────────────────────────────────────────
+# Core library
+# ──────────────────────────────────────────────
+
+add_library(golem_core STATIC
+    src/Robot.cpp
+)
+target_include_directories(golem_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(golem_core PUBLIC Eigen3::Eigen yaml-cpp raylib)
+
+# ──────────────────────────────────────────────
 # Tests
 # ──────────────────────────────────────────────
 
