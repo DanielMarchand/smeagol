@@ -31,3 +31,10 @@ target_link_libraries(golem_core PUBLIC Eigen3::Eigen yaml-cpp raylib)
 
 enable_testing()
 add_subdirectory(tests)
+
+# ──────────────────────────────────────────────
+# Tools
+# ──────────────────────────────────────────────
+
+add_executable(validate_robot tools/validate_robot.cpp)
+target_link_libraries(validate_robot PRIVATE golem_core)

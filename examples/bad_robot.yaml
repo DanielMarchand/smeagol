@@ -1,0 +1,27 @@
+# Bad robot: intentionally broken cross-references to test validation.
+#
+# Errors present:
+#   1. bars[1].v2 = 99   → vertex 99 does not exist (only 0-3 are defined)
+#   2. actuators[0].bar_idx = 5 → bar 5 does not exist (only 0-2 are defined)
+#   3. actuators[1].neuron_idx = 3 → neuron 3 does not exist (only 0-1 are defined)
+#   4. neurons[0].weights has 3 entries but there are only 2 neurons
+
+id: 2
+vertices:
+  - [0.0, 0.0, 0.0]   # 0
+  - [0.1, 0.0, 0.0]   # 1
+  - [0.0, 0.1, 0.0]   # 2
+  - [0.0, 0.0, 0.1]   # 3
+
+bars:
+  - {v1: 0, v2: 1, rest_length: 0.100, radius: 0.010}   # 0 – valid
+  - {v1: 0, v2: 99, rest_length: 0.100, radius: 0.010}  # 1 – ERROR: vertex 99 missing
+  - {v1: 1, v2: 2, rest_length: 0.141, radius: 0.010}   # 2 – valid
+
+neurons:
+  - {threshold: 0.5, weights: [0.0, 0.1, 0.2]}  # 0 – ERROR: 3 weights but only 2 neurons
+  - {threshold: 0.3, weights: [0.0, 0.0]}        # 1 – valid size, but neuron[0] still wrong
+
+actuators:
+  - {bar_idx: 5, neuron_idx: 0, bar_range: 0.010}  # ERROR: bar 5 does not exist
+  - {bar_idx: 0, neuron_idx: 3, bar_range: 0.010}  # ERROR: neuron 3 does not exist
