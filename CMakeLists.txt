@@ -23,6 +23,7 @@ add_library(golem_core STATIC
     src/Robot.cpp
     src/SceneRenderer.cpp
     src/SnapshotRenderer.cpp
+    src/Simulator.cpp
 )
 target_include_directories(golem_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(golem_core PUBLIC Eigen3::Eigen yaml-cpp raylib)
@@ -46,3 +47,6 @@ target_link_libraries(visualize_robot PRIVATE golem_core)
 
 add_executable(snapshot_robot tools/snapshot_robot.cpp)
 target_link_libraries(snapshot_robot PRIVATE golem_core)
+
+add_executable(deformation_series tools/deformation_series.cpp)
+target_link_libraries(deformation_series PRIVATE golem_core)

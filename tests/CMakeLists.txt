@@ -25,3 +25,7 @@ add_test(NAME SnapshotRenderer COMMAND test_snapshot)
 add_executable(test_debug_actuator test_debug_actuator.cpp)
 target_link_libraries(test_debug_actuator PRIVATE golem_core)
 add_test(NAME DebugActuator COMMAND test_debug_actuator)
+
+add_executable(test_simulator test_simulator.cpp)
+target_link_libraries(test_simulator PRIVATE golem_core)
+add_test(NAME Simulator COMMAND test_simulator)

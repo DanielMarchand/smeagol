@@ -20,7 +20,7 @@
 
 ### Phase 3: The Physics & Neural Simulator
 
-- [ ] **3.1** Energy Function. Implement $H = \sum k_i \delta_i^2 + \sum m_j g h_j$.
+- [x] **3.1** Energy Function. Implement $H = \sum k_i \delta_i^2 + \sum m_j g h_j$.
   - $k_i = \frac{E A_i}{l_i}$ and $\delta_i = \sqrt{(\Delta x)^2 + (\Delta y)^2 + (\Delta z)^2} - l_i$
 - [ ] **3.2** Quasi-Static Relaxation. Implement the iterative solver.
   - Calculate partial derivatives $\frac{\partial H}{\partial v}$.
