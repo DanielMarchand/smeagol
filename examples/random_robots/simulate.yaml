@@ -6,16 +6,16 @@
 # Total simulation time = num_frames * steps_per_frame * step_size  seconds
 # Neural tick period    = steps_per_cycle * step_size  seconds
 
-steps_per_cycle: 1000000  #25000   # 12 cycles for the entire simulation (60*5000/25000 = 12) 
+steps_per_cycle: 3000000  #25000   # 12 cycles for the entire simulation (60*5000/25000 = 12) 
 
 #fps:             10
 #num_frames:      60
 #steps_per_frame: 50 # 5000
 #step_size:       1.0e-6
 
-fps:             10
+fps:             30
 num_frames:      200 # 200
-steps_per_frame: 1000000 # 10000
+steps_per_frame: 3000000 # 10000
 step_size:       1.0e-7 #1e-7
 
 # Video output (base path — run.sh appends robot name)

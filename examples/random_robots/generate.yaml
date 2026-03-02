@@ -28,8 +28,8 @@ robot:
   #   x, y  ∈ [-bbox_xy,  +bbox_xy]   m
   #   z     ∈ [bbox_z_min, bbox_z_max] m  (above the floor)
   bbox_xy:    0.100
-  bbox_z_min: 0.200
-  bbox_z_max: 0.400
+  bbox_z_min: 0.050
+  bbox_z_max: 0.250
 
   # Bar spring stiffness [N/m]; drawn from [stiffness_min, stiffness_max].
   # Stability ceiling at step_size=1e-7, max_degree=6: k < 833,000 N/m.
