@@ -304,7 +304,7 @@ void Simulator::applyFriction(Eigen::MatrixX3d& grad) const
             std::sqrt(grad(j, 0) * grad(j, 0) + grad(j, 1) * grad(j, 1));
 
         // Static friction: lock x,y if lateral force is below threshold
-        if (lateral_force <= Materials::mu_static * normal_force)
+        if (lateral_force <= mu_static * normal_force)
         {
             grad(j, 0) = 0.0;
             grad(j, 1) = 0.0;

@@ -47,6 +47,11 @@ int main(int argc, char* argv[])
     try {
         Evolver ev(params);
         ev.run();
+        if (ev.wasInterrupted()) {
+            std::cerr << "[evolve] run interrupted after "
+                      << ev.evalCount() << " eval(s).\n";
+            return 130;   // conventional: 128 + SIGINT
+        }
     } catch (const std::logic_error& e) {
         std::cerr << "[evolve] " << e.what() << "\n";
         return 2;

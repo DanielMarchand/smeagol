@@ -57,10 +57,11 @@ static void test_default_params()
     CHECK(p.population_size == 200);
     CHECK(p.max_evaluations == 100'000);
     CHECK(p.seed            == 42);
-    CHECK(p.video_interval  == 1000);
+    CHECK(p.output_base_dir == "runs/");
     CHECK(p.run_dir.empty());
     CHECK(p.fitness.cycles          == 12);
     CHECK(p.fitness.steps_per_cycle == 5000);
+    CHECK(std::abs(p.fitness.mu_static - 0.5) < 1e-10);
     std::cout << "PASS  test_default_params\n";
 }
 
@@ -74,24 +75,26 @@ static void test_yaml_roundtrip()
     out.population_size     = 50;
     out.max_evaluations     = 500;
     out.seed                = 7;
-    out.video_interval      = 100;
+    out.output_base_dir     = "/tmp/base/";
     out.run_dir             = "/tmp/test_run/";
     out.fitness.cycles      = 5;
     out.fitness.steps_per_cycle = 1000;
     out.fitness.step_size   = 2.5e-7;
     out.fitness.wind        = 0.3;
+    out.fitness.mu_static   = 0.8;
     out.toYAML(tmp_file);
 
     EvolverParams in = EvolverParams::fromYAML(tmp_file);
     CHECK(in.population_size          == 50);
     CHECK(in.max_evaluations          == 500);
     CHECK(in.seed                     == 7);
-    CHECK(in.video_interval           == 100);
+    CHECK(in.output_base_dir          == "/tmp/base/");
     CHECK(in.run_dir                  == "/tmp/test_run/");
     CHECK(in.fitness.cycles           == 5);
     CHECK(in.fitness.steps_per_cycle  == 1000);
-    CHECK(std::abs(in.fitness.step_size - 2.5e-7) < 1e-15);
-    CHECK(std::abs(in.fitness.wind    - 0.3)      < 1e-10);
+    CHECK(std::abs(in.fitness.step_size  - 2.5e-7) < 1e-15);
+    CHECK(std::abs(in.fitness.wind       - 0.3)    < 1e-10);
+    CHECK(std::abs(in.fitness.mu_static  - 0.8)    < 1e-10);
     std::cout << "PASS  test_yaml_roundtrip\n";
 }
 
@@ -175,7 +178,6 @@ static void test_run_loop()
     p.population_size   = 10;
     p.max_evaluations   = 50;
     p.seed              = 1;
-    p.video_interval    = 10000; // disable snapshots during CI (headless)
     p.run_dir           = run_dir;
     // Wind mode: all vertices experience a constant +X acceleration,
     // so any robot with vertices gets non-zero fitness without needing
@@ -226,6 +228,64 @@ static void test_run_loop()
               << ev.bestFitness() << "m)\n";
 }
 
+// Integration test: resume from a checkpoint after a short run.
+static void test_resume()
+{
+    const std::string run_dir = "/tmp/test_evolver_resume/";
+
+    // Remove any leftovers from a previous run of this test.
+    fs::remove_all(run_dir);
+
+    // ── Phase A: initial run, 30 evals ────────────────────────────────────────
+    {
+        EvolverParams p;
+        p.population_size   = 10;
+        p.max_evaluations   = 30;
+        p.seed              = 42;
+        p.run_dir           = run_dir;
+        p.fitness.wind            = 9.8;
+        p.fitness.cycles          = 3;
+        p.fitness.steps_per_cycle = 500;
+
+        Evolver ev(p);
+        ev.run();
+        CHECK(ev.evalCount() == 30);
+    }
+
+    // Both checkpoint files must exist after phase A.
+    CHECK(fs::exists(run_dir + "checkpoint_population.yaml"));
+    CHECK(fs::exists(run_dir + "checkpoint_latest.yaml"));
+
+    // ── Phase B: resume and run 20 more evals ─────────────────────────────────
+    {
+        EvolverParams p;
+        p.max_evaluations   = 50;   // total budget; picks up from eval 30
+        p.seed              = 42;
+        p.run_dir           = run_dir;
+        p.resume            = true;
+        p.fitness.wind            = 9.8;
+        p.fitness.cycles          = 3;
+        p.fitness.steps_per_cycle = 500;
+
+        Evolver ev(p);
+        CHECK(ev.evalCount() == 30);   // restored from checkpoint
+        ev.run();
+        CHECK(ev.evalCount() == 50);   // ran 20 more
+    }
+
+    // fitness_log.csv should have header + 50 data rows (30 + 20)
+    {
+        std::ifstream log(run_dir + "fitness_log.csv");
+        CHECK(log.is_open());
+        int lines = 0;
+        std::string line;
+        while (std::getline(log, line)) ++lines;
+        CHECK(lines == 51);  // header + 50 data rows
+    }
+
+    std::cout << "PASS  test_resume\n";
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main()
@@ -237,6 +297,7 @@ int main()
     test_run_config_written();
     test_seed_reproducibility();
     test_run_loop();
+    test_resume();
 
     if (g_failures == 0) {
         std::cout << "\nAll evolver tests passed.\n";

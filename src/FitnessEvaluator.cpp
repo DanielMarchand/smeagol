@@ -35,7 +35,8 @@ double FitnessEvaluator::evaluate(const Robot&                  robot,
                                   std::vector<Eigen::Vector2d>* trajectory) const
 {
     Simulator sim(robot);
-    sim.wind = params_.wind;
+    sim.wind      = params_.wind;
+    sim.mu_static = params_.mu_static;
 
     const Eigen::Vector2d start = com_xy(sim);
 

@@ -243,6 +243,13 @@ public:
     double wind = 0.0;
 
     /**
+     * Static friction coefficient (Coulomb model).
+     * Lateral force must exceed mu_static × normal_force to slide a grounded vertex.
+     * Defaults to Materials::mu_static (0.5).  Override via FitnessParams::mu_static.
+     */
+    double mu_static = Materials::mu_static;
+
+    /**
      * Per-bar rest-length overrides, length == robot.bars.size().
      * Initialised from robot_.bars at construction; updated each frame by
      * applyDebugActuators() and applyActuators().  Exposed publicly so that

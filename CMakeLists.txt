@@ -15,6 +15,8 @@ find_package(yaml-cpp REQUIRED)
 
 find_package(raylib 4.0 REQUIRED)
 
+find_package(Threads REQUIRED)
+
 # ──────────────────────────────────────────────
 # Core library
 # ──────────────────────────────────────────────
@@ -31,7 +33,7 @@ add_library(smeagol_core STATIC
     src/Evolver.cpp
 )
 target_include_directories(smeagol_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(smeagol_core PUBLIC Eigen3::Eigen yaml-cpp raylib)
+target_link_libraries(smeagol_core PUBLIC Eigen3::Eigen yaml-cpp raylib Threads::Threads)
 
 # ──────────────────────────────────────────────
 # Tests

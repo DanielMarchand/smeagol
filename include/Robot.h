@@ -8,6 +8,7 @@
 #include "Materials.h"
 
 #include <Eigen/Core>
+#include <atomic>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -144,5 +145,5 @@ public:
     std::vector<DebugActuator> debug_actuators;
 
 private:
-    static ID s_next_id;           ///< Auto-incrementing ID counter
+    static std::atomic<ID> s_next_id;  ///< Auto-incrementing ID counter (atomic for thread-safety)
 };

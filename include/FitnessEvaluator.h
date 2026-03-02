@@ -25,6 +25,10 @@ struct FitnessParams
     /// Optional wind acceleration [m/s²] in +X applied to all vertices.
     /// Set > 0 to verify the fitness evaluator without a locomotion controller.
     double wind            = 0.0;
+
+    /// Static friction coefficient (Coulomb model).
+    /// Lateral force must exceed mu_static × normal_force to slide a grounded vertex.
+    double mu_static       = 0.5;
 };
 
 /**

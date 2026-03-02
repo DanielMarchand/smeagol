@@ -21,8 +21,8 @@ output_dir: robots
 
 robot:
   # Vertex count range
-  min_vertices: 2
-  max_vertices: 6
+  min_vertices: 8
+  max_vertices: 20
 
   # Bounding box:
   #   x, y  ∈ [-bbox_xy,  +bbox_xy]   m
@@ -40,8 +40,8 @@ robot:
   p_extra_bar: 0.3
 
   # Neuron count range
-  min_neurons: 2
-  max_neurons: 6
+  min_neurons: 10
+  max_neurons: 20
 
   # Neuron firing threshold range
   threshold_min: 0.0

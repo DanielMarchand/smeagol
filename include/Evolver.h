@@ -19,25 +19,27 @@
  * @code
  * population_size: 200
  * max_evaluations: 100000
- * seed: 42          # 0 = seed from std::random_device
- * video_interval: 1000
- * run_dir: ""       # auto-set to runs/run_<timestamp>/ if empty
+ * seed: 42               # 0 = seed from std::random_device
+ * output_base_dir: runs/ # timestamped run dirs land here
+ * run_dir: ""            # overrides output_base_dir when non-empty
  * fitness:
  *   cycles: 12
  *   steps_per_cycle: 5000
  *   step_size: 1.0e-7
  *   wind: 0.0
+ *   mu_static: 0.5       # static Coulomb friction coefficient
  * @endcode
  */
 struct EvolverParams
 {
-    int         population_size = 200;
-    int         max_evaluations = 100'000;
-    int         seed            = 42;   ///< 0 → seed from std::random_device
+    int         population_size  = 200;
+    int         max_evaluations  = 100'000;
+    int         seed             = 42;        ///< 0 → seed from std::random_device
     FitnessParams fitness;
-    MutatorParams mutation;             ///< mutation knobs (all have defaults)
-    int         video_interval  = 1000; ///< save best-robot video every N evals
-    std::string run_dir         = "";   ///< auto-set to runs/run_<timestamp>/
+    MutatorParams mutation;                   ///< mutation knobs (all have defaults)
+    std::string output_base_dir  = "runs/";   ///< timestamped run dirs are created here
+    std::string run_dir          = "";        ///< overrides output_base_dir when non-empty
+    bool        resume           = false;     ///< if true, restore from checkpoint_population.yaml
 
     /**
      * Load from a YAML file.  Any field not present in the file keeps its
@@ -76,13 +78,16 @@ public:
      * Run the evolutionary loop until eval_count_ >= params_.max_evaluations.
      * Each iteration: select parent → clone → mutate → evaluate → replace.
      * Every placed child is saved to robots/robot_<id>.yaml.
-     * Every video_interval evals: YAML + PNG + MP4 written to checkpoints/.
+     * YAML + PNG + MP4 written to checkpoints/ on every new fitness record.
      */
     void run();
 
-    const Robot& bestRobot()  const;
-    double       bestFitness() const;
-    int          evalCount()   const { return eval_count_; }
+    const Robot& bestRobot()    const;
+    double       bestFitness()  const;
+    int          evalCount()    const { return eval_count_; }
+
+    /// Returns true if run() was interrupted by SIGINT/SIGTERM.
+    bool wasInterrupted() const;
 
 private:
     // ── selection & replacement ────────────────────────────────────────────
@@ -91,7 +96,7 @@ private:
 
     // ── inner loop helpers ─────────────────────────────────────────────────
     void evaluateOne(int idx);              ///< run fitness eval, update fitnesses_[idx]
-    void maybeSaveSnapshot(int eval_num);   ///< write YAML+PNG+MP4 to checkpoints/ when on video_interval
+    void maybeSaveSnapshot(int eval_num);   ///< write YAML+PNG+MP4 to checkpoints/ on new fitness record
 
     // ── state ──────────────────────────────────────────────────────────────
     EvolverParams           params_;
@@ -103,4 +108,5 @@ private:
 
     std::ofstream           fitness_log_;    ///< eval,generation,best_fitness,... per row
     std::ofstream           lineage_log_;    ///< eval,child_id,parent_id,... per row
+    double                  record_fitness_ = -1.0; ///< all-time best; snapshot fires on improvement
 };

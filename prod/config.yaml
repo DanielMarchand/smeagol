@@ -1,0 +1,47 @@
+# To run:
+#   ./build/evolve prod/config.yaml
+#
+# Output lands in:  prod/runs/run_<timestamp>/
+# Mid-run best:     prod/runs/run_<timestamp>/checkpoint_latest.yaml
+# Final robot:      prod/runs/run_<timestamp>/best_robot_final.yaml
+# Resume:           add  resume: true  below and re-run the same command.
+#
+# For a real overnight run, bump population_size → 200 and max_evaluations → 100000.
+# ─────────────────────────────────────────────────────────────────────────────
+
+population_size:  200
+max_evaluations:  10000
+seed:             0          # 0 = seed from std::random_device (different each run)
+output_base_dir:  prod/runs/ # timestamped run dirs are created here
+# resume:         true       # uncomment to continue from checkpoint_population.yaml
+
+fitness:
+  cycles:          12
+  #steps_per_cycle: 5000
+  steps_per_cycle: 15000000  
+  step_size:       1.0e-7
+  wind:            0.0
+  mu_static:       0.5        # static Coulomb friction coefficient
+
+
+mutation:
+  p_perturb:    0.10
+  p_add_remove: 0.01
+  p_split:      0.03
+  p_attach:     0.03
+  p_rewire:     0.03
+
+  perturb_bar_frac:      0.10
+  perturb_threshold_mag: 0.50
+  perturb_weight_mag:    0.50
+
+  bar_length_min: 0.01
+  bar_length_max: 1.00
+  threshold_min:  0.00
+  threshold_max:  2.00
+
+  split_vertex_offset: 0.01
+  actuator_range_max:  0.01
+
+  new_synapse_weight_min: 0.50
+  new_synapse_weight_max: 1.50
