@@ -206,86 +206,157 @@ The `Mutator` class is a pure-static utility (or a free-function namespace). It 
 
 - [x] **4.2.5 — "At Least One" Guarantee** (updated for 5 operators)
 
-- [ ] **4.2.6 — Post-Mutation Validation**
+- [x] **4.2.6 — Post-Mutation Validation**
 
-  After all mutations, call `child.isValid()`. If it returns `false`, log a warning and discard the child (use the parent clone unchanged with a small perturbation). This should be extremely rare given that the `Robot` mutators already maintain index consistency.
+  After each mutation attempt, call `child.isValid()`. If invalid, reroll (re-clone + re-mutate) up to 100 times. If still invalid after all rerolls, warn to stderr and fall back to the unmutated parent clone.
 
 ---
 
 #### 4.3 Evolutionary Loop
 
-- [ ] **4.3.1 — Evolver class**
+- [x] **4.3.1 — Evolver class**
 
-  ```cpp
-  class Evolver {
-  public:
-      explicit Evolver(EvolverParams params);
-      void run();                          // main loop
-      const Robot& bestRobot() const;
-      double       bestFitness() const;
-  private:
-      int selectParent() const;            // fitness-proportionate roulette
-      int selectReplacement() const;       // uniform random
-      void evaluateOne(int idx);           // fitness eval + update fitnesses_[idx]
-      void maybeSaveSnapshot(int eval_num);
+- [x] **4.3.2 — Fitness-Proportionate Selection (`selectParent`)**
 
-      EvolverParams            params_;
-      std::vector<Robot>       population_;
-      std::vector<double>      fitnesses_;
-      std::mt19937             rng_;
-      int                      eval_count_   = 0;
-      int                      best_idx_     = 0;
-      // logging (Phase 5)
-      std::ofstream            fitness_log_;
-      std::ofstream            lineage_log_;
-  };
-  ```
+- [x] **4.3.3 — Steady-State Replacement**
 
-- [ ] **4.3.2 — Fitness-Proportionate Selection (`selectParent`)**
+- [x] **4.3.4 — Termination Condition**
 
-  - Sum all fitnesses: `total = Σ fitnesses_[i]`.
-  - If `total == 0.0` (early run, all robots empty): return `uniform_int(0, N-1)` — uniform random selection.
-  - Otherwise: draw `r = uniform(0.0, total)`, iterate with running sum until `sum > r`, return that index. This is standard roulette-wheel selection.
-  - Selection pressure scales naturally: a robot with 2× the fitness gets 2× the chance of being selected as parent.
-
-- [ ] **4.3.3 — Steady-State Replacement**
-
-  Each iteration of the main loop:
-  1. `parent_idx = selectParent()` — fitness-proportionate.
-  2. `Robot child = population_[parent_idx].clone()` — deep copy.
-  3. `child.id = Robot::nextId()` — assign fresh ID.
-  4. `Mutator::mutate(child, rng_)` — apply 4 operators.
-  5. `double child_fitness = FitnessEvaluator(params_.fitness).evaluate(child)` — full evaluation.
-  6. `replace_idx = selectReplacement()` — uniform random over entire population (including possibly the parent slot — this is intentional per L&P).
-  7. `population_[replace_idx] = std::move(child)` and `fitnesses_[replace_idx] = child_fitness`.
-  8. Update `best_idx_` if `child_fitness > fitnesses_[best_idx_]`.
-  9. Increment `eval_count_`. Log. Call `maybeSaveSnapshot`.
-
-- [ ] **4.3.4 — Termination Condition**
-
-  Loop until `eval_count_ >= params_.max_evaluations` (default 100,000). This matches the L&P paper's $\approx 10^5$ evaluations over 300–600 generations. With `population_size = 200`, one "generation" = 200 evaluations, so 100,000 evals = 500 generations.
-
-  Optionally handle `SIGINT` cleanly: catch the signal, set a `stop_requested_` flag, and let the loop exit at the next iteration rather than crashing mid-eval.
+  Flushes `fitness_log_`, saves `best_robot_final.yaml`, prints final stats.
 
 ---
 
-#### 4.4 CLI Tool (`tools/evolve.cpp`)
+#### 4.4 CLI Tool (`tools/evolve.cpp`) + `MutatorParams`
 
 - [ ] Accepts one argument: path to a YAML config file.
-  ```yaml
-  # evolve_config.yaml
-  population_size:  200
-  max_evaluations:  100000
-  seed:             42
-  video_interval:   1000
-  fitness:
-    cycles:          12
-    steps_per_cycle: 50000
-    step_size:       1.0e-7
-  ```
 - [ ] On startup: creates `runs/run_<ISO-timestamp>/`, writes `run_config.yaml` copy there, opens `fitness.csv` and `lineage.csv`.
 - [ ] Prints progress to stdout every 200 evaluations: `eval=N  best=X.XXXm  mean=X.XXXm`.
 - [ ] On exit (normal or SIGINT): saves best robot as `best_robot.yaml`.
+
+---
+
+##### `MutatorParams` struct
+
+All mutation knobs are currently hardcoded in `Mutator.cpp`. They will be extracted into a `MutatorParams` struct (in `include/Mutator.h`) and threaded through `Mutator::mutate()` as an optional argument with sensible defaults:
+
+```cpp
+struct MutatorParams {
+    // ── Operator fire probabilities (applied independently each call) ────
+    double p_perturb    = 0.10;  ///< probability perturbElement fires
+    double p_add_remove = 0.01;  ///< probability addRemoveElement fires
+    double p_split      = 0.03;  ///< probability splitElement fires
+    double p_attach     = 0.03;  ///< probability attachDetach fires
+    double p_rewire     = 0.03;  ///< probability rewireNeuron fires
+
+    // ── Perturb magnitudes ───────────────────────────────────────────────
+    double perturb_bar_frac      = 0.10; ///< bar rest_length scaled by uniform(1-f, 1+f)
+    double perturb_threshold_mag = 0.50; ///< threshold += uniform(-m, +m)
+    double perturb_weight_mag    = 0.50; ///< synapse weight += uniform(-m, +m)
+
+    // ── Structural clamp limits ──────────────────────────────────────────
+    double bar_length_min   = 0.01; ///< minimum bar rest_length after any perturb/split [m]
+    double bar_length_max   = 1.00; ///< maximum bar rest_length after any perturb [m]
+    double threshold_min    = 0.00; ///< minimum neuron threshold after perturb
+    double threshold_max    = 2.00; ///< maximum neuron threshold after perturb
+
+    // ── Split vertex ─────────────────────────────────────────────────────
+    double split_vertex_offset = 0.01; ///< max per-axis offset [m] when splitting a vertex
+
+    // ── Attach / new actuator ────────────────────────────────────────────
+    double actuator_range_max = 0.01; ///< bar_range sampled from uniform(0, max) on attach [m]
+
+    // ── New neuron initialisation ────────────────────────────────────────
+    double new_synapse_weight_min = 0.50; ///< min |initial synapse weight|
+    double new_synapse_weight_max = 1.50; ///< max |initial synapse weight|
+
+    static MutatorParams fromYAML(const YAML::Node& node);
+    void toYAML(YAML::Emitter& out) const;
+};
+```
+
+`Mutator::mutate()` signature becomes:
+
+```cpp
+static void mutate(Robot& robot, std::mt19937& rng,
+                   const MutatorParams& params = MutatorParams{});
+```
+
+All internal helpers (`perturbElement`, `addBarMutation`, etc.) are updated to accept `const MutatorParams&` and use its fields instead of their local `constexpr` values. No change to any call site that doesn't pass params — the default argument preserves backwards compatibility.
+
+`MutatorParams` is added as a field on `EvolverParams`:
+
+```cpp
+struct EvolverParams {
+    // ... existing fields ...
+    MutatorParams mutation;   // all defaults if omitted from YAML
+};
+```
+
+---
+
+##### Full `config.yaml` with mutation settings
+
+```yaml
+population_size:  200
+max_evaluations:  100000
+seed:             42
+video_interval:   1000
+
+fitness:
+  cycles:          12
+  steps_per_cycle: 5000
+  step_size:       1.0e-7
+  wind:            0.0
+
+mutation:
+  # ── Operator probabilities (each fires independently per mutate() call) ──
+  p_perturb:    0.10
+  p_add_remove: 0.01
+  p_split:      0.03
+  p_attach:     0.03
+  p_rewire:     0.03
+
+  # ── Perturb magnitudes ────────────────────────────────────────────────────
+  # Bar rest_length is multiplied by uniform(1 - frac, 1 + frac)
+  perturb_bar_frac:      0.10
+  # Neuron threshold gets += uniform(-mag, +mag), clamped to [min, max]
+  perturb_threshold_mag: 0.50
+  # Synapse weight gets += uniform(-mag, +mag), unclamped
+  perturb_weight_mag:    0.50
+
+  # ── Structural clamps ─────────────────────────────────────────────────────
+  bar_length_min:  0.01   # metres
+  bar_length_max:  1.00   # metres
+  threshold_min:   0.00
+  threshold_max:   2.00
+
+  # ── Split vertex offset ───────────────────────────────────────────────────
+  # New vertex placed at parent ± uniform(-offset, +offset) on each axis
+  split_vertex_offset: 0.01   # metres
+
+  # ── Actuator bar_range on attach ──────────────────────────────────────────
+  # bar_range sampled from uniform(0, max) when attaching a new actuator
+  actuator_range_max: 0.01    # metres
+
+  # ── New neuron initial synapse weight ─────────────────────────────────────
+  # |weight| sampled from uniform(min, max), sign randomised 50/50
+  new_synapse_weight_min: 0.50
+  new_synapse_weight_max: 1.50
+```
+
+---
+
+##### Implementation checklist for `MutatorParams`
+
+- [ ] Add `MutatorParams` struct to `include/Mutator.h` (with `fromYAML` / `toYAML`)
+- [ ] Add `#include "Mutator.h"` YAML parsing in `src/Mutator.cpp`
+- [ ] Thread `const MutatorParams&` through all five operator functions + helpers
+- [ ] Replace all local `constexpr` literals with `params.field` references
+- [ ] Add `MutatorParams mutation` field to `EvolverParams` in `include/Evolver.h`
+- [ ] Extend `EvolverParams::fromYAML` / `toYAML` to round-trip the `mutation:` block
+- [ ] Update `Evolver::run()` / `submit_one()` to pass `params_.mutation` to `Mutator::mutate()`
+- [ ] Update `tests/test_mutator.cpp` to construct explicit `MutatorParams` (defaults) — no behaviour change expected
+- [ ] Update `examples/evolve/config.yaml` with the full mutation block above
 
 ---
 
@@ -307,12 +378,731 @@ The `Mutator` class is a pure-static utility (or a free-function namespace). It 
   - Assert `evolver.bestFitness() > 0.0`.
   - Assert `evolver.bestRobot().isValid()`.
 
-### Phase 5: Logging, Analytics & Media Autostore
+### Phase 5: Configuration, Logging & Media Autostore
 
-- [ ] **5.1** File Hierarchy. Ensure the Evolver creates a structured output folder (e.g., `runs/run_TIMESTAMP/`).
-- [ ] **5.2** Fitness Logging. Output a `fitness.csv` tracking `[Generation, Eval_ID, Fitness]`. This data will be used to generate the Generation vs. Fitness scatter plots (0–0.38 fitness over 167+ generations).
-- [ ] **5.3** Phylogenetic Logging. Output a `lineage.csv` tracking `[Generation, Child_ID, Parent_ID, Fitness]`. This will be used externally (e.g., via Python/matplotlib) to plot the ancestral proximity trees (showing divergence, convergence, speciation, and mass extinction).
-- [ ] **5.4** Automated Video Generation. Every $N$ generations, identify the most fit Robot. Pass it to a `Simulation` linked to a `VideoRenderer` and auto-store an MP4 showing its 12-cycle movement in a `videos/` subfolder.
+- [x] **5.1 — `MutatorParams` struct** — expose all mutation knobs as YAML-configurable fields
+- [x] **5.2 — Full `config.yaml`** — canonical config file including mutation block; update `examples/evolve/config.yaml`
+- [ ] **5.3 — Run directory layout** — `runs/run_TIMESTAMP/` with `checkpoints/` and `videos/` subdirs
+- [ ] **5.4 — `fitness_log.csv` schema** — widen from 2 columns to include generation, mean, genome size
+- [ ] **5.5 — `lineage.csv` schema** — child/parent/replaced linkage per eval
+- [ ] **5.6 — Periodic best-robot checkpoints** — YAML + PNG every `video_interval` evals
+- [ ] **5.7 — `population_final.yaml`** — full population dump at termination
+- [ ] **5.8 — Automated video generation** — MP4 of best robot every N evals via VideoRenderer
+- [ ] **5.9 — Logging thread-safety** — ensure all writes stay on manager thread in parallel build
+- [ ] **5.10 — Crash recovery (future)** — atomic checkpoint + resume support
+
+---
+
+#### 5.1 — `MutatorParams` Struct
+
+All mutation knobs are currently hardcoded in `Mutator.cpp`. Extract them into a `MutatorParams` struct in `include/Mutator.h` and thread it through `Mutator::mutate()` as an optional argument:
+
+```cpp
+struct MutatorParams {
+    // ── Operator fire probabilities (applied independently each call) ────
+    double p_perturb    = 0.10;  ///< probability perturbElement fires
+    double p_add_remove = 0.01;  ///< probability addRemoveElement fires
+    double p_split      = 0.03;  ///< probability splitElement fires
+    double p_attach     = 0.03;  ///< probability attachDetach fires
+    double p_rewire     = 0.03;  ///< probability rewireNeuron fires
+
+    // ── Perturb magnitudes ───────────────────────────────────────────────
+    double perturb_bar_frac      = 0.10; ///< bar rest_length scaled by uniform(1-f, 1+f)
+    double perturb_threshold_mag = 0.50; ///< threshold += uniform(-m, +m)
+    double perturb_weight_mag    = 0.50; ///< synapse weight += uniform(-m, +m)
+
+    // ── Structural clamp limits ──────────────────────────────────────────
+    double bar_length_min   = 0.01; ///< minimum bar rest_length [m]
+    double bar_length_max   = 1.00; ///< maximum bar rest_length [m]
+    double threshold_min    = 0.00; ///< minimum neuron threshold
+    double threshold_max    = 2.00; ///< maximum neuron threshold
+
+    // ── Split vertex ─────────────────────────────────────────────────────
+    double split_vertex_offset = 0.01; ///< max per-axis offset [m] on vertex split
+
+    // ── Attach / new actuator ────────────────────────────────────────────
+    double actuator_range_max = 0.01; ///< bar_range sampled from uniform(0, max) [m]
+
+    // ── New neuron initialisation ────────────────────────────────────────
+    double new_synapse_weight_min = 0.50; ///< min |initial synapse weight|
+    double new_synapse_weight_max = 1.50; ///< max |initial synapse weight|
+
+    static MutatorParams fromYAML(const YAML::Node& node);
+    void toYAML(YAML::Emitter& out) const;
+};
+```
+
+`Mutator::mutate()` becomes:
+
+```cpp
+static void mutate(Robot& robot, std::mt19937& rng,
+                   const MutatorParams& params = MutatorParams{});
+```
+
+All internal helpers accept `const MutatorParams&` and use its fields instead of `constexpr` literals. The default argument means every existing call site compiles unchanged. `MutatorParams` is added as a nested field on `EvolverParams`:
+
+```cpp
+struct EvolverParams {
+    // ... existing fields ...
+    MutatorParams mutation;   // all defaults if omitted from YAML
+};
+```
+
+**Implementation checklist:**
+- [ ] Add `MutatorParams` to `include/Mutator.h` with `fromYAML` / `toYAML`
+- [ ] Thread `const MutatorParams&` through all five operator functions + helpers in `src/Mutator.cpp`
+- [ ] Replace all local `constexpr` literals with `params.field` references
+- [ ] Add `MutatorParams mutation` field to `EvolverParams` in `include/Evolver.h`
+- [ ] Extend `EvolverParams::fromYAML` / `toYAML` to round-trip the `mutation:` block
+- [ ] Update `Evolver::run()` / `submit_one()` to pass `params_.mutation` to `Mutator::mutate()`
+- [ ] Update `tests/test_mutator.cpp` to construct explicit `MutatorParams` (defaults) — no behaviour change expected
+
+---
+
+#### 5.2 — Full `config.yaml`
+
+The canonical config file covering all tunable parameters. Used by the `evolve` CLI tool and stored verbatim as `run_config.yaml` in the run directory for reproducibility.
+
+```yaml
+population_size:  200
+max_evaluations:  100000
+seed:             42          # 0 = seed from std::random_device
+video_interval:   1000        # save checkpoint every N evals
+
+fitness:
+  cycles:          12
+  steps_per_cycle: 5000
+  step_size:       1.0e-7
+  wind:            0.0
+
+mutation:
+  # ── Operator probabilities (each fires independently per mutate() call) ──
+  p_perturb:    0.10
+  p_add_remove: 0.01
+  p_split:      0.03
+  p_attach:     0.03
+  p_rewire:     0.03
+
+  # ── Perturb magnitudes ────────────────────────────────────────────────────
+  # Bar rest_length is multiplied by uniform(1 - frac, 1 + frac)
+  perturb_bar_frac:      0.10
+  # Neuron threshold gets += uniform(-mag, +mag), clamped to [min, max]
+  perturb_threshold_mag: 0.50
+  # Synapse weight gets += uniform(-mag, +mag), unclamped
+  perturb_weight_mag:    0.50
+
+  # ── Structural clamps ─────────────────────────────────────────────────────
+  bar_length_min:  0.01   # metres
+  bar_length_max:  1.00   # metres
+  threshold_min:   0.00
+  threshold_max:   2.00
+
+  # ── Split vertex offset ───────────────────────────────────────────────────
+  # New vertex placed at parent ± uniform(-offset, +offset) on each axis
+  split_vertex_offset: 0.01   # metres
+
+  # ── Actuator bar_range on attach ──────────────────────────────────────────
+  # bar_range sampled from uniform(0, max) when attaching a new actuator
+  actuator_range_max: 0.01    # metres
+
+  # ── New neuron initial synapse weight ─────────────────────────────────────
+  # |weight| sampled from uniform(min, max), sign randomised 50/50
+  new_synapse_weight_min: 0.50
+  new_synapse_weight_max: 1.50
+```
+
+Update `examples/evolve/config.yaml` to match this full schema when 5.1 is implemented.
+
+---
+
+#### 5.3 — Run Directory Layout
+
+Every run produces a self-contained directory. Nothing is written outside it.
+
+```
+runs/
+└── run_20260302_143501/          ← timestamped, created at Evolver construction
+    ├── run_config.yaml           ← full resolved EvolverParams (already implemented)
+    ├── fitness_log.csv           ← one row per eval (already implemented, needs widening)
+    ├── lineage.csv               ← one row per eval: child→parent linkage
+    ├── population_final.yaml     ← all 200 robots at end of run (for resume/analysis)
+    ├── best_robot_final.yaml     ← best individual at termination (already implemented)
+    ├── checkpoints/              ← periodic snapshots of the best robot
+    │   ├── best_eval_1000.yaml
+    │   ├── best_eval_1000.png    ← static snapshot image (headless-safe)
+    │   ├── best_eval_2000.yaml
+    │   └── ...
+    └── videos/                   ← periodic video renders of the best robot
+        ├── best_eval_1000.mp4
+        ├── best_eval_2000.mp4
+        └── ...
+```
+
+The `checkpoints/` and `videos/` subdirectories are created lazily on first write.
+
+---
+
+#### 5.4 — `fitness_log.csv` Schema (expanded from current stub)
+
+Current schema: `eval,best_fitness`. Expand to:
+
+```csv
+eval,generation,best_fitness,mean_fitness,best_robot_id,best_v,best_b,best_n,best_a
+1,0,0.0,0.0,7,0,0,0,0
+200,1,0.0012,0.00031,142,3,2,1,1
+400,2,0.0019,0.00044,142,3,2,1,1
+...
+```
+
+| Column | Type | Description |
+|---|---|---|
+| `eval` | int | Cumulative evaluation count (1-indexed) |
+| `generation` | int | `eval / population_size` (integer division) |
+| `best_fitness` | double | `fitnesses_[best_idx_]` |
+| `mean_fitness` | double | Mean over all `fitnesses_` |
+| `best_robot_id` | uint64 | `population_[best_idx_].id` — links into lineage |
+| `best_v/b/n/a` | int | Vertex/bar/neuron/actuator count of the best robot |
+
+Write one row every `log_interval` evals (default: every 1 eval, configurable via `EvolverParams`). The `generation` column makes it trivial to aggregate in pandas/matplotlib without recomputing.
+
+Flush is called at end of `run()` (already done) — also call `fitness_log_.flush()` every 1000 evals to avoid data loss if the process is killed mid-run.
+
+---
+
+#### 5.5 — `lineage.csv` Schema
+
+```csv
+eval,child_id,parent_id,child_fitness,replaced_id,replaced_fitness
+1,201,7,0.0,53,0.0
+2,202,142,0.0012,18,0.0
+...
+```
+
+| Column | Description |
+|---|---|
+| `eval` | Eval number at which this child was created |
+| `child_id` | `Robot::ID` of the new individual |
+| `parent_id` | `Robot::ID` of the parent it was cloned from |
+| `child_fitness` | Fitness of the new child |
+| `replaced_id` | `Robot::ID` of the individual it replaced in the population |
+| `replaced_fitness` | Fitness of the replaced individual |
+
+This table, combined with `fitness_log.csv`, is sufficient to reconstruct the full phylogenetic tree offline. `replaced_id` is needed to detect extinction events (high-fitness lineages being accidentally overwritten by replacement).
+
+The `lineage_log_` ofstream is already declared in `Evolver.h` (placeholder from Phase 4.1 design). Open it in the constructor alongside `fitness_log_`.
+
+In the multicore build (Phase 6), the `EvalResult` struct must carry `parent_id` and `replaced_id` back to the manager so the lineage row can be written correctly:
+
+```cpp
+struct EvalResult {
+    Robot    child;
+    int      replace_idx;
+    double   fitness;
+    Robot::ID parent_id;    // add: known at submit time
+};
+// Manager writes: eval, child.id, parent_id, fitness,
+//                 population_[replace_idx].id (before overwrite),
+//                 fitnesses_[replace_idx]     (before overwrite)
+```
+
+---
+
+#### 5.6 — Periodic Best-Robot Checkpoints
+
+`maybeSaveSnapshot(eval_num)` already fires every `video_interval` evals. Expand it:
+
+```cpp
+void Evolver::maybeSaveSnapshot(int eval_num)
+{
+    if (eval_num % params_.video_interval != 0) return;
+
+    const std::string dir  = params_.run_dir + "checkpoints/";
+    fs::create_directories(dir);
+    const std::string stem = dir + "best_eval_" + std::to_string(eval_num);
+
+    // 1. YAML — always. Lightweight, fast, resumable.
+    population_[best_idx_].toYAML(stem + ".yaml");
+
+    // 2. PNG snapshot — requires display. Skipped gracefully if headless.
+    try {
+        SnapshotRenderer snap;
+        snap.render(population_[best_idx_], stem + ".png");
+    } catch (const std::exception& e) {
+        std::cerr << "[Evolver] snapshot PNG skipped: " << e.what() << "\n";
+    }
+
+    // 3. Video (Phase 5.4) — heavier; gated behind a separate video_interval
+    //    or a dedicated video_every_n_intervals multiplier.
+    //    Deferred to Phase 5.4 implementation.
+}
+```
+
+The YAML checkpoint is critical: it lets you load `best_eval_N.yaml` directly into `snapshot_robot`, `evaluate_fitness`, or `visualize_robot` tools without a full resume.
+
+---
+
+#### 5.7 — `population_final.yaml` (End-of-Run Dump)
+
+At termination, serialize the entire population to a single multi-document YAML file (one `---` block per robot). This enables:
+
+- **Resume**: reload population + fitnesses and continue a run.
+- **Post-hoc analysis**: re-evaluate every surviving individual with different fitness params (e.g., higher `steps_per_cycle` for a more accurate fitness estimate).
+- **Seeding future runs**: take the best N individuals as the starting population for a follow-up run with a different fitness function.
+
+```cpp
+// End of Evolver::run():
+{
+    std::ofstream pop_file(params_.run_dir + "population_final.yaml");
+    for (int i = 0; i < static_cast<int>(population_.size()); ++i) {
+        pop_file << "# fitness: " << fitnesses_[i] << "\n";
+        // toYAML writes to a path; refactor to support ostream, or write
+        // individual files to  checkpoints/pop_final_<id>.yaml instead.
+    }
+}
+```
+
+Note: `Robot::toYAML()` currently takes a file path. A complementary `toYAMLString()` or `toYAML(std::ostream&)` overload would make multi-document serialization cleaner — add this when implementing 5.9.
+
+---
+
+#### 5.8 — Automated Video Generation
+
+Every $N$ evals (gated behind a `video_every_n_checkpoints` multiplier on `video_interval`), identify the most fit robot. Pass it to a `Simulator` linked to a `VideoRenderer` and auto-store an MP4 in `videos/`. This is the heaviest I/O operation — run it on the manager thread while workers are idle (i.e., inside `maybeSaveSnapshot` which already runs on the manager).
+
+The `video_every_n_checkpoints` multiplier avoids generating a video on every checkpoint: e.g., `video_interval = 1000` + `video_every_n_checkpoints = 5` → video every 5000 evals.
+
+---
+
+#### 5.9 — Logging Thread-Safety in the Parallel Build
+
+All log writes happen on the manager thread, between `collect_one()` calls — **never** inside a worker lambda. The manager guarantees serial access to all `std::ofstream` objects. No locking is needed.
+
+The only ordering concern: in the Phase 6 rolling-window design, `eval_count_` increments inside `collect_one()` which is called sequentially on the manager. Log rows are therefore always written in strictly ascending `eval` order. If `collect_any()` (non-FIFO collection) is used instead, rows may arrive out of order — add an `eval` column sort step in the offline analysis script, or buffer rows in a `priority_queue` keyed on `eval_count_` and flush in order.
+
+---
+
+#### 5.10 — Crash Recovery / Incremental Resume (future)
+
+Not required for Phase 5 but worth noting as a future extension:
+
+- Store a `checkpoint_latest.yaml` symlink (or copy) updated atomically via `rename()` on every `maybeSaveSnapshot` call. This gives a crash-safe latest checkpoint with no extra I/O.
+- On startup, if `run_dir` already exists and contains `checkpoint_latest.yaml` + a partial `fitness_log.csv`, reload population and `eval_count_` from disk and continue.
+- This requires making `fitnesses_` persistable (e.g., embed fitness as a YAML comment in each robot's checkpoint file, or write a companion `fitnesses.csv`).
+
+---
+
+### Phase 6: Multicore Parallelism
+
+`FitnessEvaluator::evaluate()` is the only bottleneck. A full run is ~100,000 calls; each call runs up to 60,000 gradient-descent steps per simulation. Mutation, selection, and I/O are collectively < 1% of wall-clock time. The design philosophy is therefore: **keep evaluation cores saturated at all times**, while dedicating the remaining 1–2 cores to the management work (selection, cloning, mutation, result application, logging).
+
+---
+
+#### 6.1 — Architecture: Manager + Worker Pool
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Main thread  ("manager")                                   │
+│  - Owns: population_, fitnesses_, rng_, fitness_log_        │
+│  - Owns: in_flight deque of std::future<EvalResult>         │
+│                                                             │
+│  Loop:                                                      │
+│    while window not full:                                   │
+│      selectParent() → clone → mutate/reroll                 │
+│      std::async(eval_worker, std::move(job))  ──────────┐  │
+│                                                          │  │
+│    oldest_future.get()  ◄────────────────────────────────┘  │
+│      apply replacement to population_                       │
+│      update best_idx_, log                                  │
+│      submit one new job                                     │
+└─────────────────────────────────────────────────────────────┘
+
+       Worker threads  (W = hardware_concurrency() - 1 or - 2)
+       Each owns:  local FitnessEvaluator, local Robot copy
+       No shared state — purely functional
+```
+
+The key property: every time the manager collects one result it immediately submits one new job, so the number of in-flight evaluations stays constant at `W`. Worker cores are never idle except at startup and wind-down.
+
+---
+
+#### 6.2 — Data Structures
+
+```cpp
+// A job packet submitted to a worker.
+// Everything is owned — no pointers into shared state.
+struct EvalJob {
+    Robot        child;        // deep copy — worker owns it
+    int          replace_idx;  // decided at submission time by manager
+    // (no per-job RNG needed: eval is deterministic given the robot geometry)
+};
+
+// What the worker returns to the manager.
+struct EvalResult {
+    Robot        child;        // moved back for lineage logging (Phase 5)
+    int          replace_idx;
+    double       fitness;
+};
+```
+
+`replace_idx` is chosen by the manager at submission time (before the worker starts). This is valid because in steady-state GA any slot can be replaced — we don't need the fitness value to decide the replacement target (unlike tournament selection). The only edge case is that two in-flight jobs may choose the same `replace_idx`; the second write simply overwrites the first. This is acceptable and matches the original serial semantics asymptotically.
+
+---
+
+#### 6.3 — Worker Lambda
+
+The worker is a pure function with zero shared state:
+
+```cpp
+// Defined inside Evolver::run(), captures only params_ by value.
+auto eval_worker = [fitness_params = params_.fitness](EvalJob job) -> EvalResult {
+    double f = FitnessEvaluator(fitness_params).evaluate(job.child);
+    return EvalResult{ std::move(job.child), job.replace_idx, f };
+};
+```
+
+`FitnessEvaluator` and `Simulator` are both stack-local inside the lambda — no heap sharing, no locking.
+
+---
+
+#### 6.4 — Flight-Window Loop
+
+```cpp
+void Evolver::run()
+{
+    const int W = std::max(1,
+        static_cast<int>(std::thread::hardware_concurrency()) - 1);
+    // Reserve 1 core for the manager. On a 16-core machine: W = 15 workers.
+    // To reserve 2 manager cores (useful if mutation is heavy): use - 2.
+
+    std::deque<std::future<EvalResult>> in_flight;
+
+    // Helper: build and submit one job.
+    auto submit_one = [&]() {
+        const int parent_idx = selectParent();
+
+        // Mutate with reroll (Phase 4.2.6) — all on manager thread.
+        Robot child;
+        constexpr int kMaxRerolls = 100;
+        for (int attempt = 0; attempt <= kMaxRerolls; ++attempt) {
+            child = population_[parent_idx].clone();
+            child.id = Robot::nextId();   // atomic — see 6.6
+            Mutator::mutate(child, rng_);
+            if (child.isValid()) break;
+            if (attempt == kMaxRerolls) {
+                std::cerr << "[Evolver] warning: reroll limit hit at eval "
+                          << eval_count_ << " — using unmutated clone\n";
+                child = population_[parent_idx].clone();
+                child.id = Robot::nextId();
+            }
+        }
+
+        EvalJob job{ std::move(child), selectReplacement() };
+        in_flight.push_back(
+            std::async(std::launch::async, eval_worker, std::move(job)));
+    };
+
+    // Helper: collect the oldest in-flight result and apply it.
+    auto collect_one = [&]() {
+        EvalResult res = in_flight.front().get();
+        in_flight.pop_front();
+
+        population_[res.replace_idx] = std::move(res.child);
+        fitnesses_[res.replace_idx]  = res.fitness;
+
+        // Rescan if we clobbered best_idx_.
+        if (res.replace_idx == best_idx_) {
+            best_idx_ = static_cast<int>(
+                std::max_element(fitnesses_.begin(), fitnesses_.end())
+                - fitnesses_.begin());
+        } else if (res.fitness > fitnesses_[best_idx_]) {
+            best_idx_ = res.replace_idx;
+        }
+
+        ++eval_count_;
+        fitness_log_ << eval_count_ << "," << fitnesses_[best_idx_] << "\n";
+
+        if (eval_count_ % 200 == 0) {
+            double mean = 0.0;
+            for (double f : fitnesses_) mean += f;
+            mean /= static_cast<double>(fitnesses_.size());
+            std::cout << std::fixed << std::setprecision(4)
+                      << "eval=" << eval_count_
+                      << "  best=" << fitnesses_[best_idx_] << "m"
+                      << "  mean=" << mean << "m\n";
+        }
+
+        maybeSaveSnapshot(eval_count_);
+    };
+
+    // ── Phase 1: fill the window ──────────────────────────────────────────
+    while (static_cast<int>(in_flight.size()) < W
+           && eval_count_ + static_cast<int>(in_flight.size())
+              < params_.max_evaluations)
+        submit_one();
+
+    // ── Phase 2: rolling window ───────────────────────────────────────────
+    while (eval_count_ < params_.max_evaluations) {
+        collect_one();
+        if (eval_count_ + static_cast<int>(in_flight.size())
+            < params_.max_evaluations)
+            submit_one();
+    }
+
+    // ── Phase 3: drain any remaining in-flight jobs ───────────────────────
+    while (!in_flight.empty())
+        collect_one();
+
+    // ── Final bookkeeping ─────────────────────────────────────────────────
+    fitness_log_.flush();
+    const std::string best_path = params_.run_dir + "best_robot_final.yaml";
+    population_[best_idx_].toYAML(best_path);
+    std::cout << "[Evolver] run complete.  eval=" << eval_count_
+              << "  best_fitness=" << fitnesses_[best_idx_] << "m\n"
+              << "[Evolver] best robot saved → " << best_path << "\n";
+}
+```
+
+---
+
+#### 6.5 — Head-of-Line Blocking
+
+`in_flight.front().get()` always waits for the **oldest** submitted job. If one eval is anomalously slow (a large mature robot), it delays collection of faster results that completed behind it. In practice this is unlikely to matter — eval time variance within a generation should be small — but if it becomes a problem, a non-blocking scan can be added:
+
+```cpp
+// Non-blocking poll: find the first ready future in the window.
+auto collect_any = [&]() {
+    while (true) {
+        for (auto it = in_flight.begin(); it != in_flight.end(); ++it) {
+            if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+                EvalResult res = it->get();
+                in_flight.erase(it);
+                apply_result(res);   // same logic as collect_one above
+                return;
+            }
+        }
+        // Nothing ready yet — yield briefly to avoid busy-spin.
+        std::this_thread::yield();
+    }
+};
+```
+
+Swap `collect_one()` for `collect_any()` only if profiling shows significant stall time on the manager thread.
+
+---
+
+#### 6.6 — Thread-Safety Audit
+
+| Component | Safe? | Fix |
+|---|---|---|
+| `FitnessEvaluator::evaluate()` | ✅ | Nothing — fully stateless |
+| `Simulator` (construction + run) | ✅ | Nothing — stack-local inside lambda |
+| `Robot::s_next_id` (static counter) | ❌ | Change to `std::atomic<Robot::ID>` |
+| `population_` / `fitnesses_` | ✅ after fix | Manager is the only writer; workers hold their own `Robot` copy |
+| `fitness_log_` (ofstream) | ✅ after fix | Written only by manager between `collect_one()` calls |
+| `rng_` (manager's mt19937) | ✅ | Used only on manager thread inside `submit_one()` |
+| `Raylib` (SnapshotRenderer) | ✅ | Called only from manager via `maybeSaveSnapshot()` |
+
+The single required code change:
+
+```cpp
+// include/Robot.h
+static std::atomic<ID> s_next_id;   // was: static ID s_next_id
+
+// src/Robot.cpp
+std::atomic<Robot::ID> Robot::s_next_id{0};  // was: Robot::ID Robot::s_next_id = 0
+```
+
+`fetch_add(1, std::memory_order_relaxed)` is implicitly used by `operator++` on `std::atomic` — no other changes needed in `Robot.cpp`.
+
+---
+
+#### 6.7 — How Many Manager Cores?
+
+| Machine | `hardware_concurrency()` | Recommended W | Notes |
+|---|---|---|---|
+| Laptop (8 logical cores) | 8 | 7 | 1 manager, 7 workers |
+| Desktop (16 cores) | 16 | 14 | 2 managers (use `- 2`) if mutation rerolls become expensive |
+| Server (32+ cores) | 32+ | 30 | Mutation is fast enough that 1 manager suffices; use `- 1` |
+
+The manager only stalls when calling `collect_one()` waiting for the oldest future. On a healthy run the oldest future is nearly always already complete by the time the manager loops back (workers finish evals in ~1–5 ms; mutation takes ~1 µs). So 1 manager core is wasted < 5% of the time. Using `- 2` is only warranted if you later add expensive mutation logic (e.g., gradient-based perturbation).
+
+---
+
+#### 6.8 — CMake Changes
+
+```cmake
+find_package(Threads REQUIRED)
+target_link_libraries(smeagol_core Threads::Threads)
+```
+
+`std::async` with `std::launch::async` uses the system thread pool via `<future>` — no additional library required on Linux (pthreads are pulled in by `Threads::Threads`). No OpenMP, no third-party scheduler.
+
+---
+
+#### 6.9 — Expected Speedup
+
+| Cores | W | Ideal speedup | Estimated real (Amdahl + overhead) |
+|---|---|---|---|
+| 4 | 3 | 3× | ~2.8× |
+| 8 | 7 | 7× | ~6.5× |
+| 16 | 15 | 15× | ~13–14× |
+| 32 | 31 | 31× | ~25–28× |
+
+Overhead sources: `std::async` launch (~5–15 µs per future), `Robot::clone()` heap allocation, `collect_one()` manager stall. Together these are < 1% of a typical eval duration and do not limit scaling up to at least 32 cores.
+
+---
+
+#### 6.10 — Signal Handling and Graceful Shutdown (Ctrl+C)
+
+**Does the parallelism make Ctrl+C worse?**
+
+Without a signal handler the default action for SIGINT is immediate process termination — `std::async` worker threads are killed mid-simulation, file buffers are not flushed, the best robot is never saved, and any partial CSV rows are truncated. This is exactly the same problem as the serial build, just with more threads in flight. The fix is the same in both cases: catch the signal, set a flag, let the code finish cleanly.
+
+---
+
+##### Signal handler (async-signal-safe)
+
+Signal handlers may only call async-signal-safe functions — no `malloc`, no `cout`, no mutexes. Writing to `STDERR_FILENO` via `write()` is safe. The complete handler (supporting both single and double Ctrl+C) lives at file scope in `src/Evolver.cpp`:
+
+```cpp
+// src/Evolver.cpp — file-scope, before any function definitions
+#include <csignal>
+#include <unistd.h>   // write(), STDERR_FILENO
+
+static std::atomic<bool> g_stop_requested{false};
+static std::atomic<int>  g_signal_count{0};
+
+static void signal_handler(int /*sig*/) noexcept
+{
+    if (g_signal_count.fetch_add(1, std::memory_order_relaxed) == 0) {
+        // First signal: request graceful shutdown and tell the user.
+        g_stop_requested.store(true, std::memory_order_relaxed);
+        constexpr char msg[] =
+            "\n[Evolver] interrupt received — finishing in-flight evals, "
+            "please wait...\n"
+            "           (press Ctrl+C again to force quit immediately)\n";
+        (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+    } else {
+        // Second signal: hard exit.  Data already saved by graceful path.
+        constexpr char msg[] = "\n[Evolver] force quit.\n";
+        (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        _exit(130);   // 130 = 128 + SIGINT, conventional exit code
+    }
+}
+```
+
+Install in `Evolver::run()` before the loop starts:
+
+```cpp
+void Evolver::run()
+{
+    // Install signal handlers.  Restore originals on exit.
+    auto prev_sigint  = std::signal(SIGINT,  signal_handler);
+    auto prev_sigterm = std::signal(SIGTERM, signal_handler);
+
+    // ... rest of run() ...
+
+    // Restore on clean exit so subsequent code isn't affected.
+    std::signal(SIGINT,  prev_sigint);
+    std::signal(SIGTERM, prev_sigterm);
+}
+```
+
+`SIGTERM` is included because `kill <pid>` and job schedulers (SLURM, Docker stop) send SIGTERM, not SIGINT.
+
+---
+
+##### Where to check the flag
+
+Check `g_stop_requested` **only on the manager thread**, at the top of the main loop — before submitting a new job. Never check it inside a worker lambda; workers always run to completion naturally:
+
+```cpp
+// Phase 2: rolling window
+while (eval_count_ < params_.max_evaluations) {
+    if (g_stop_requested.load(std::memory_order_relaxed)) {
+        std::cerr << "\n[Evolver] interrupt received — draining "
+                  << in_flight.size() << " in-flight eval(s)...\n";
+        break;   // falls through to Phase 3 drain below
+    }
+    collect_one();
+    if (eval_count_ + static_cast<int>(in_flight.size())
+        < params_.max_evaluations)
+        submit_one();
+}
+
+// Phase 3: drain (runs whether interrupted or not)
+while (!in_flight.empty())
+    collect_one();
+```
+
+Because the drain loop runs unconditionally, every already-submitted eval completes and its result is written to the log and applied to the population. The window size `W` bounds the worst-case wait after Ctrl+C — on a 16-core machine with 1–5 ms evals the process fully exits in under 100 ms.
+
+---
+
+##### Double Ctrl+C (force quit)
+
+If the user hits Ctrl+C a second time mid-drain, the second SIGINT calls `_exit(130)` immediately. `_exit()` is async-signal-safe (unlike `exit()`) and bypasses C++ destructors — that is fine here because the first Ctrl+C already triggered the graceful save path, so no data is lost.
+
+`(void)write(...)` is used throughout because `write()`'s return value cannot be meaningfully acted on inside a signal handler, and the cast silences the unused-result compiler warning.
+
+---
+
+##### Full shutdown sequence (single Ctrl+C)
+
+```
+Ctrl+C pressed
+  → signal_handler sets g_stop_requested = true
+  → manager sees flag at top of next loop iteration
+  → no new jobs are submitted
+  → Phase 3 drain: all W in-flight futures are collected
+  → fitness_log_.flush() called
+  → lineage_log_.flush() called
+  → best_robot_final.yaml written
+  → population_final.yaml written (if 5.9 is implemented)
+  → signal handlers restored
+  → Evolver::run() returns
+  → evolve tool prints "interrupted" message and exits 130
+```
+
+Nothing is lost beyond the evals that were never submitted after the signal.
+
+---
+
+##### `evolve.cpp` exit code
+
+```cpp
+int main(int argc, char** argv)
+{
+    // ... parse args, construct evolver ...
+    ev.run();
+
+    if (g_stop_requested.load())  {
+        std::cerr << "[evolve] run interrupted after "
+                  << ev.evalCount() << " evals.\n";
+        return 130;   // conventional: interrupted by signal
+    }
+    return 0;
+}
+```
+
+`g_stop_requested` needs to be accessible from `main` — either expose it via a header (`extern std::atomic<bool> g_stop_requested`) or add `Evolver::wasInterrupted() const` accessor that returns the flag value.
+
+---
+
+##### `sigaction` vs `std::signal`
+
+`std::signal` is portable (C++17 standard) but has unspecified behaviour for signals raised from other threads on POSIX systems. `sigaction` with `SA_RESTART` is more robust on Linux:
+
+```cpp
+struct sigaction sa{};
+sa.sa_handler = signal_handler;
+sa.sa_flags   = SA_RESTART;   // restart interrupted syscalls automatically
+sigemptyset(&sa.sa_mask);
+sigaction(SIGINT,  &sa, nullptr);
+sigaction(SIGTERM, &sa, nullptr);
+```
+
+`SA_RESTART` means that if the signal fires while the manager is blocked in `future.get()`, the wait call is automatically restarted rather than returning `EINTR`. Without it, `future.get()` could throw or behave unpredictably on some platforms. Use `sigaction` on Linux; fall back to `std::signal` with `#ifdef _WIN32` for Windows portability.
 
 ---
 
