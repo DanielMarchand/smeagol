@@ -62,6 +62,8 @@ static void test_default_params()
     CHECK(p.fitness.cycles          == 12);
     CHECK(p.fitness.steps_per_cycle == 5000);
     CHECK(std::abs(p.fitness.mu_static - 0.5) < 1e-10);
+    CHECK(p.video.fps             == 30);
+    CHECK(p.video.steps_per_frame == 2000000);
     std::cout << "PASS  test_default_params\n";
 }
 
@@ -82,6 +84,8 @@ static void test_yaml_roundtrip()
     out.fitness.step_size   = 2.5e-7;
     out.fitness.wind        = 0.3;
     out.fitness.mu_static   = 0.8;
+    out.video.fps             = 24;
+    out.video.steps_per_frame = 500000;
     out.toYAML(tmp_file);
 
     EvolverParams in = EvolverParams::fromYAML(tmp_file);
@@ -95,6 +99,8 @@ static void test_yaml_roundtrip()
     CHECK(std::abs(in.fitness.step_size  - 2.5e-7) < 1e-15);
     CHECK(std::abs(in.fitness.wind       - 0.3)    < 1e-10);
     CHECK(std::abs(in.fitness.mu_static  - 0.8)    < 1e-10);
+    CHECK(in.video.fps             == 24);
+    CHECK(in.video.steps_per_frame == 500000);
     std::cout << "PASS  test_yaml_roundtrip\n";
 }
 

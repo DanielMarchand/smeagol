@@ -19,9 +19,13 @@ fitness:
   cycles:          12
   #steps_per_cycle: 5000
   steps_per_cycle: 15000000  
-  step_size:       1.0e-7
+  step_size:       1.0e-6
   wind:            0.0
   mu_static:       0.5        # static Coulomb friction coefficient
+
+video:
+  fps:             30
+  steps_per_frame: 2000000    # physics steps between captured frames
 
 
 mutation:

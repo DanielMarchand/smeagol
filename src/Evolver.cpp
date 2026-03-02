@@ -94,6 +94,11 @@ EvolverParams EvolverParams::fromYAML(const std::string& path)
 
     if (node["resume"]) p.resume = node["resume"].as<bool>();
 
+    if (const auto& v = node["video"]) {
+        if (v["fps"])             p.video.fps             = v["fps"].as<int>();
+        if (v["steps_per_frame"]) p.video.steps_per_frame = v["steps_per_frame"].as<int>();
+    }
+
     return p;
 }
 
@@ -117,6 +122,10 @@ void EvolverParams::toYAML(const std::string& path) const
     mutation.toYAML(out);
     out << YAML::EndMap;  // mutation
     out << YAML::Key << "resume"          << YAML::Value << resume;
+    out << YAML::Key << "video"           << YAML::Value << YAML::BeginMap;
+    out << YAML::Key << "fps"             << YAML::Value << video.fps;
+    out << YAML::Key << "steps_per_frame" << YAML::Value << video.steps_per_frame;
+    out << YAML::EndMap;  // video
     out << YAML::EndMap;  // root
 
     std::ofstream f(path);
@@ -283,7 +292,7 @@ void Evolver::evaluateOne(int idx)
 void Evolver::maybeSaveSnapshot(int eval_num)
 {
     const double current_best = fitnesses_[best_idx_];
-    if (current_best <= record_fitness_) return;
+    if (current_best < record_fitness_ + 0.01) return;  // must beat old record by ≥1 cm
     record_fitness_ = current_best;
 
     const std::string stem = params_.run_dir + "checkpoints/record_eval_" + std::to_string(eval_num);
@@ -300,21 +309,31 @@ void Evolver::maybeSaveSnapshot(int eval_num)
                   << ": " << e.what() << "\n";
     }
 
-    // Save MP4 video — re-simulate best robot and record one frame per cycle.
+    // Save MP4 video — re-simulate best robot, capturing a frame every steps_per_frame steps.
     try {
-        const FitnessParams& fp = params_.fitness;
+        const FitnessParams& fp  = params_.fitness;
+        const VideoParams&   vp  = params_.video;
         Robot robot_copy = population_[best_idx_];  // mutable copy for positions
         Simulator sim(robot_copy);
-        sim.wind = fp.wind;
+        sim.wind      = fp.wind;
+        sim.mu_static = fp.mu_static;
 
-        VideoRenderer vid;
+        const int spf = std::max(1, vp.steps_per_frame);
+        VideoRenderer vid(vp.fps);
+        int total_steps = 0;
         for (int c = 0; c < fp.cycles; ++c) {
             sim.tickNeural();
             sim.applyActuators(fp.steps_per_cycle);
-            sim.relax(fp.steps_per_cycle, fp.step_size, 0.0, 0.0);
-            sim.copyPositionsBack(robot_copy);
-            vid.addFrame(robot_copy,
-                         static_cast<double>(c + 1) * fp.steps_per_cycle * fp.step_size);
+            int remaining = fp.steps_per_cycle;
+            while (remaining > 0) {
+                const int chunk = std::min(remaining, spf);
+                sim.relax(chunk, fp.step_size, 0.0, 0.0);
+                remaining   -= chunk;
+                total_steps += chunk;
+                sim.copyPositionsBack(robot_copy);
+                vid.addFrame(robot_copy,
+                             static_cast<double>(total_steps) * fp.step_size);
+            }
         }
         vid.finish(stem + ".mp4");
     } catch (const std::exception& e) {

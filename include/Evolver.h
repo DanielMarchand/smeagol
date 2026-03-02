@@ -10,6 +10,15 @@
 #include <vector>
 
 /**
+ * @brief Video rendering parameters for record-checkpoint snapshots.
+ */
+struct VideoParams
+{
+    int fps             = 30;       ///< output framerate passed to ffmpeg
+    int steps_per_frame = 2000000;  ///< physics steps between captured frames
+};
+
+/**
  * @brief Configuration for a single evolutionary run.
  *
  * All fields have sensible defaults matching Lipson & Pollack (2000).
@@ -28,6 +37,9 @@
  *   step_size: 1.0e-7
  *   wind: 0.0
  *   mu_static: 0.5       # static Coulomb friction coefficient
+ * video:
+ *   fps:             30
+ *   steps_per_frame: 2000000
  * @endcode
  */
 struct EvolverParams
@@ -40,6 +52,7 @@ struct EvolverParams
     std::string output_base_dir  = "runs/";   ///< timestamped run dirs are created here
     std::string run_dir          = "";        ///< overrides output_base_dir when non-empty
     bool        resume           = false;     ///< if true, restore from checkpoint_population.yaml
+    VideoParams video;                        ///< video rendering knobs for record snapshots
 
     /**
      * Load from a YAML file.  Any field not present in the file keeps its
