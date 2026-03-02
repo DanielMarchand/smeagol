@@ -42,10 +42,12 @@ static int g_failures = 0;
 static EvolverParams makeTestParams(int pop_size, const std::string& run_dir)
 {
     EvolverParams p;
-    p.population_size = pop_size;
-    p.max_evaluations = 10;
-    p.seed            = 99;
-    p.run_dir         = run_dir;
+    p.population_size          = pop_size;
+    p.max_evaluations          = 10;
+    p.seed                     = 99;
+    p.run_dir                  = run_dir;
+    p.record_min_improvement   = 0.0;
+    p.video.enabled            = false;   // skip PNG/MP4 in tests
     return p;
 }
 
@@ -64,6 +66,7 @@ static void test_default_params()
     CHECK(std::abs(p.fitness.mu_static - 0.5) < 1e-10);
     CHECK(p.video.fps             == 30);
     CHECK(p.video.steps_per_frame == 2000000);
+    CHECK(std::abs(p.record_min_improvement - 0.01) < 1e-10);
     std::cout << "PASS  test_default_params\n";
 }
 
@@ -86,6 +89,7 @@ static void test_yaml_roundtrip()
     out.fitness.mu_static   = 0.8;
     out.video.fps             = 24;
     out.video.steps_per_frame = 500000;
+    out.record_min_improvement = 0.005;
     out.toYAML(tmp_file);
 
     EvolverParams in = EvolverParams::fromYAML(tmp_file);
@@ -101,6 +105,7 @@ static void test_yaml_roundtrip()
     CHECK(std::abs(in.fitness.mu_static  - 0.8)    < 1e-10);
     CHECK(in.video.fps             == 24);
     CHECK(in.video.steps_per_frame == 500000);
+    CHECK(std::abs(in.record_min_improvement - 0.005) < 1e-10);
     std::cout << "PASS  test_yaml_roundtrip\n";
 }
 
@@ -191,6 +196,8 @@ static void test_run_loop()
     p.fitness.wind            = 9.8;
     p.fitness.cycles          = 3;
     p.fitness.steps_per_cycle = 500;
+    p.record_min_improvement  = 0.0;
+    p.video.enabled           = false;
 
     Evolver ev(p);
     ev.run();
@@ -252,6 +259,8 @@ static void test_resume()
         p.fitness.wind            = 9.8;
         p.fitness.cycles          = 3;
         p.fitness.steps_per_cycle = 500;
+        p.record_min_improvement  = 0.0;
+        p.video.enabled           = false;
 
         Evolver ev(p);
         ev.run();
@@ -272,6 +281,8 @@ static void test_resume()
         p.fitness.wind            = 9.8;
         p.fitness.cycles          = 3;
         p.fitness.steps_per_cycle = 500;
+        p.record_min_improvement  = 0.0;
+        p.video.enabled           = false;
 
         Evolver ev(p);
         CHECK(ev.evalCount() == 30);   // restored from checkpoint

@@ -243,7 +243,11 @@ void Robot::toYAML(const std::string& path) const
     YAML::Emitter out;
     out << YAML::BeginMap;
 
-    out << YAML::Key << "id" << YAML::Value << static_cast<unsigned long long>(id);
+    out << YAML::Key << "id"        << YAML::Value << static_cast<unsigned long long>(id);
+    out << YAML::Key << "parent_id" << YAML::Value
+        << (parent_id == std::numeric_limits<ID>::max()
+                ? 0ULL : static_cast<unsigned long long>(parent_id));
+    out << YAML::Key << "fitness"   << YAML::Value << fitness;
 
     // ── vertices ──────────────────────────────────────────────────────────
     out << YAML::Key << "vertices" << YAML::Value;
@@ -328,6 +332,8 @@ Robot Robot::fromYAML(const std::string& path)
     }
 
     Robot r(doc["id"].as<unsigned long long>());
+    if (doc["parent_id"]) r.parent_id = doc["parent_id"].as<unsigned long long>();
+    if (doc["fitness"])   r.fitness   = doc["fitness"].as<double>();
 
     // ── vertices ──────────────────────────────────────────────────────────
     for (const auto& node : doc["vertices"]) {

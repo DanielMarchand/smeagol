@@ -14,6 +14,7 @@
  */
 struct VideoParams
 {
+    bool enabled        = true;     ///< set false to skip PNG+MP4 (e.g. in unit tests)
     int fps             = 30;       ///< output framerate passed to ffmpeg
     int steps_per_frame = 2000000;  ///< physics steps between captured frames
 };
@@ -53,6 +54,7 @@ struct EvolverParams
     std::string run_dir          = "";        ///< overrides output_base_dir when non-empty
     bool        resume           = false;     ///< if true, restore from checkpoint_population.yaml
     VideoParams video;                        ///< video rendering knobs for record snapshots
+    double      record_min_improvement = 0.01; ///< new best must exceed old by at least this [m]
 
     /**
      * Load from a YAML file.  Any field not present in the file keeps its

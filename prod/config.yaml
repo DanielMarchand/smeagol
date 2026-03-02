@@ -13,6 +13,7 @@ population_size:  200
 max_evaluations:  10000
 seed:             0          # 0 = seed from std::random_device (different each run)
 output_base_dir:  prod/runs/ # timestamped run dirs are created here
+record_min_improvement: 0.01  # new record must beat old by at least this many metres
 # resume:         true       # uncomment to continue from checkpoint_population.yaml
 
 fitness:

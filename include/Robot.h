@@ -10,6 +10,7 @@
 #include <Eigen/Core>
 #include <atomic>
 #include <cstddef>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -131,6 +132,8 @@ public:
     // ── Data ──────────────────────────────────────────────────────────────
 
     ID id;                         ///< Unique individual identifier
+    ID parent_id = std::numeric_limits<ID>::max(); ///< Parent's ID (max = no parent)
+    double fitness = 0.0;          ///< Most recent evaluated fitness [m]
 
     std::vector<Vertex>   vertices;
     std::vector<Bar>      bars;

@@ -93,6 +93,8 @@ EvolverParams EvolverParams::fromYAML(const std::string& path)
         p.mutation = MutatorParams::fromYAML(m);
 
     if (node["resume"]) p.resume = node["resume"].as<bool>();
+    if (node["record_min_improvement"])
+        p.record_min_improvement = node["record_min_improvement"].as<double>();
 
     if (const auto& v = node["video"]) {
         if (v["fps"])             p.video.fps             = v["fps"].as<int>();
@@ -121,7 +123,8 @@ void EvolverParams::toYAML(const std::string& path) const
     out << YAML::Key << "mutation"        << YAML::Value << YAML::BeginMap;
     mutation.toYAML(out);
     out << YAML::EndMap;  // mutation
-    out << YAML::Key << "resume"          << YAML::Value << resume;
+    out << YAML::Key << "resume"                << YAML::Value << resume;
+    out << YAML::Key << "record_min_improvement" << YAML::Value << record_min_improvement;
     out << YAML::Key << "video"           << YAML::Value << YAML::BeginMap;
     out << YAML::Key << "fps"             << YAML::Value << video.fps;
     out << YAML::Key << "steps_per_frame" << YAML::Value << video.steps_per_frame;
@@ -292,13 +295,48 @@ void Evolver::evaluateOne(int idx)
 void Evolver::maybeSaveSnapshot(int eval_num)
 {
     const double current_best = fitnesses_[best_idx_];
-    if (current_best < record_fitness_ + 0.01) return;  // must beat old record by ≥1 cm
+    if (current_best < record_fitness_ + params_.record_min_improvement) return;
     record_fitness_ = current_best;
 
     const std::string stem = params_.run_dir + "checkpoints/record_eval_" + std::to_string(eval_num);
 
     // Always save YAML.
     population_[best_idx_].toYAML(stem + ".yaml");
+
+    // ── Atomic checkpoint_latest.yaml (best robot, safe for crash recovery) ──
+    {
+        const std::string tmp = params_.run_dir + "checkpoint_latest.yaml.tmp";
+        population_[best_idx_].toYAML(tmp);
+        fs::rename(tmp, params_.run_dir + "checkpoint_latest.yaml");
+    }
+
+    // ── Atomic checkpoint_population.yaml (full pop + fitnesses for resume) ──
+    {
+        YAML::Emitter pop_out;
+        pop_out << YAML::BeginMap;
+        pop_out << YAML::Key << "eval_count" << YAML::Value << eval_count_;
+        pop_out << YAML::Key << "population" << YAML::Value << YAML::BeginSeq;
+        for (int i = 0; i < static_cast<int>(population_.size()); ++i) {
+            pop_out << YAML::BeginMap;
+            pop_out << YAML::Key << "path" << YAML::Value
+                    << ("robots/robot_" + std::to_string(population_[i].id) + ".yaml");
+            pop_out << YAML::Key << "fitness" << YAML::Value << fitnesses_[i];
+            pop_out << YAML::EndMap;
+        }
+        pop_out << YAML::EndSeq;
+        pop_out << YAML::EndMap;
+
+        const std::string tmp = params_.run_dir + "checkpoint_population.yaml.tmp";
+        {
+            std::ofstream f(tmp);
+            f << pop_out.c_str() << "\n";
+        }
+        fs::rename(tmp, params_.run_dir + "checkpoint_population.yaml");
+    }
+
+    std::cout << "[Evolver] checkpoint saved → " << stem << ".yaml\n";
+
+    if (!params_.video.enabled) return;
 
     // Save PNG snapshot — requires a display; skip gracefully if unavailable.
     try {
@@ -336,42 +374,10 @@ void Evolver::maybeSaveSnapshot(int eval_num)
             }
         }
         vid.finish(stem + ".mp4");
+        std::cout << "[Evolver] video saved → " << stem << ".mp4\n";
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] video MP4 skipped at eval " << eval_num
                   << ": " << e.what() << "\n";
-    }
-
-    std::cout << "[Evolver] checkpoint saved → " << stem << "\n";
-
-    // ── Atomic checkpoint_latest.yaml (best robot, safe for crash recovery) ──
-    {
-        const std::string tmp = params_.run_dir + "checkpoint_latest.yaml.tmp";
-        population_[best_idx_].toYAML(tmp);
-        fs::rename(tmp, params_.run_dir + "checkpoint_latest.yaml");
-    }
-
-    // ── Atomic checkpoint_population.yaml (full pop + fitnesses for resume) ──
-    {
-        YAML::Emitter pop_out;
-        pop_out << YAML::BeginMap;
-        pop_out << YAML::Key << "eval_count" << YAML::Value << eval_count_;
-        pop_out << YAML::Key << "population" << YAML::Value << YAML::BeginSeq;
-        for (int i = 0; i < static_cast<int>(population_.size()); ++i) {
-            pop_out << YAML::BeginMap;
-            pop_out << YAML::Key << "path" << YAML::Value
-                    << ("robots/robot_" + std::to_string(population_[i].id) + ".yaml");
-            pop_out << YAML::Key << "fitness" << YAML::Value << fitnesses_[i];
-            pop_out << YAML::EndMap;
-        }
-        pop_out << YAML::EndSeq;
-        pop_out << YAML::EndMap;
-
-        const std::string tmp = params_.run_dir + "checkpoint_population.yaml.tmp";
-        {
-            std::ofstream f(tmp);
-            f << pop_out.c_str() << "\n";
-        }
-        fs::rename(tmp, params_.run_dir + "checkpoint_population.yaml");
     }
 }
 
@@ -441,6 +447,8 @@ void Evolver::run()
 
         population_[ridx] = std::move(res.child);
         fitnesses_[ridx]  = res.fitness;
+        population_[ridx].parent_id = res.parent_id;
+        population_[ridx].fitness   = res.fitness;
 
         // Archive on disk.
         population_[ridx].toYAML(
