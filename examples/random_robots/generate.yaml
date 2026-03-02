@@ -51,7 +51,7 @@ robot:
   weight_range: 1.0
 
   # Probability each bar gets an actuator attached
-  p_actuate_bar: 0.0
+  p_actuate_bar: 0.4
 
   # Upper bound for bar_range; drawn from [0, bar_range_max] [m]
   bar_range_max: 1.0

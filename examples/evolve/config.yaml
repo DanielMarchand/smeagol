@@ -1,0 +1,9 @@
+population_size: 200
+max_evaluations: 100000
+seed: 42
+video_interval: 1000
+fitness:
+  cycles: 12
+  steps_per_cycle: 5000
+  step_size: 1.0e-7
+  wind: 0.0

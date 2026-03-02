@@ -1,0 +1,44 @@
+# seed_robot.yaml – tetrahedron with a 2-neuron anti-phase oscillator.
+#
+# Used as the starting point for the mutator_demo example.
+# run.sh applies each of the four mutation operators to this robot
+# and saves the results to robots/.
+#
+# Geometry  (same as robot_neuralactuator):
+#   Vertex 0: base front-left   (0.00, 0.00, 0.00)
+#   Vertex 1: base front-right  (0.20, 0.00, 0.00)
+#   Vertex 2: base back-centre  (0.10, 0.20, 0.00)
+#   Vertex 3: apex              (0.10, 0.10, 0.20)
+#
+# Neural network:
+#   Neuron 0 (primed)  – driven by neuron 1  (weights: [0, 1])
+#   Neuron 1 (silent)  – driven by neuron 0  (weights: [1, 0])
+#   Anti-phase oscillation, period 2 cycles.
+#
+# Actuator:
+#   Bar 3 (strut v0–v3) extended by 1 cm when neuron 0 fires.
+
+id: 1
+
+vertices:
+  - [0.00, 0.00, 0.00]   # 0 – base front-left
+  - [0.20, 0.00, 0.00]   # 1 – base front-right
+  - [0.10, 0.20, 0.00]   # 2 – base back-centre
+  - [0.10, 0.10, 0.20]   # 3 – apex
+
+bars:
+  - {v1: 0, v2: 1, stiffness: 50000}   # 0 – base front
+  - {v1: 0, v2: 2, stiffness: 50000}   # 1 – base left
+  - {v1: 1, v2: 2, stiffness: 50000}   # 2 – base right
+  - {v1: 0, v2: 3, stiffness: 50000}   # 3 – strut left  (actuated)
+  - {v1: 1, v2: 3, stiffness: 50000}   # 4 – strut right
+  - {v1: 2, v2: 3, stiffness: 50000}   # 5 – strut back
+
+neurons:
+  - {threshold: 0.5, activation: 1.0, weights: [0.0, 1.0]}  # 0 – primed
+  - {threshold: 0.5, activation: 0.0, weights: [1.0, 0.0]}  # 1 – silent
+
+actuators:
+  - {bar_idx: 3, neuron_idx: 0, bar_range: 0.01}   # n0 fires → strut +1 cm
+
+debug_actuators: []

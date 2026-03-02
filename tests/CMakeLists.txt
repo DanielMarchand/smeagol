@@ -45,3 +45,11 @@ add_test(NAME VideoRenderer COMMAND test_video_renderer)
 add_executable(test_robot_factory test_robot_factory.cpp)
 target_link_libraries(test_robot_factory PRIVATE smeagol_core)
 add_test(NAME RobotFactory COMMAND test_robot_factory)
+
+add_executable(test_mutator test_mutator.cpp)
+target_link_libraries(test_mutator PRIVATE smeagol_core)
+add_test(NAME Mutator COMMAND test_mutator)
+
+add_executable(test_evolver test_evolver.cpp)
+target_link_libraries(test_evolver PRIVATE smeagol_core)
+add_test(NAME Evolver COMMAND test_evolver)

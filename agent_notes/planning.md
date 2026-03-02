@@ -17,6 +17,7 @@
 
 - [x] **2.1** Implement `SceneRenderer`. Set up a fixed 3D orbital camera, a ground plane (`DrawGrid`), and the `drawRobot()` routine.
 - [x] **2.2** Implement `SnapshotRenderer`. Add logic to render a single frame and use Raylib's `TakeScreenshot()` to output a still image. Link this to `Robot::saveDebugImage()`.
+  - *Refined*: `render()` now calls `drawNeuralOverlay(robot, {})` (empty activations → all neurons shown as silent) so snapshots display neural wiring. HUD text updated to show `v / b / n / a` counts.
 
 ### Phase 3: The Physics & Neural Simulator
 
@@ -38,7 +39,7 @@
 
 - [x] **3.9** Wind force. Added optional `wind` acceleration [m/s²] to `Simulator` (public field, default 0.0). Applies a constant +X body force to all vertices via `computeGradient()` (same form as gravity). Exposed through `FitnessParams::wind` and parsed from `params.yaml`. Used to sanity-check the fitness evaluator without a working locomotion controller.
 
-- [ ] **3.10 — Actuator Ramping (smooth actuation)**
+- [x] **3.10 — Actuator Ramping (smooth actuation)**
 
   **Problem:** The current `applyActuators()` instantly sets each bar's rest length to `base + activation * bar_range` at the start of a neural cycle. This creates a step-change in the energy minimum: on the very next relaxation step the gradient is huge, causing an elastic shock that propagates violently through the structure before the solver gradually damps it out. This is physically unrealistic and numerically harsh.
 
@@ -110,7 +111,7 @@ All new `.cpp` files added to `CMakeLists.txt` under `smeagol_core` and the rele
 
 #### 4.1 Population Initialisation
 
-- [ ] **4.1** Implement `EvolverParams` struct:
+- [x] **4.1** Implement `EvolverParams` struct:
   ```cpp
   struct EvolverParams {
       int    population_size  = 200;
@@ -123,11 +124,11 @@ All new `.cpp` files added to `CMakeLists.txt` under `smeagol_core` and the rele
   ```
   Parsed from a YAML config file by the `evolve` tool.
 
-- [ ] Initialise `population_` as `std::vector<Robot>` of size `population_size`, each robot created via `Robot()` default constructor (empty: 0 vertices, 0 bars, 0 neurons, 0 actuators). Each gets a unique auto-assigned ID from `Robot::s_next_id`.
+- [x] Initialise `population_` as `std::vector<Robot>` of size `population_size`, each robot created via `Robot()` default constructor (empty: 0 vertices, 0 bars, 0 neurons, 0 actuators). Each gets a unique auto-assigned ID from `Robot::s_next_id`.
 
-- [ ] Seed one `std::mt19937 rng_` from `EvolverParams::seed`. If seed = 0, seed from `std::random_device`. Store seed in `run_config.yaml` in the run directory for reproducibility.
+- [x] Seed one `std::mt19937 rng_` from `EvolverParams::seed`. If seed = 0, seed from `std::random_device`. Store seed in `run_config.yaml` in the run directory for reproducibility.
 
-- [ ] Initialise `fitnesses_` as `std::vector<double>` of size `population_size`, all set to 0.0. Do **not** evaluate the null population — they all score 0.0, which is correct and saves $200 \times$ eval cost.
+- [x] Initialise `fitnesses_` as `std::vector<double>` of size `population_size`, all set to 0.0. Do **not** evaluate the null population — they all score 0.0, which is correct and saves $200 \times$ eval cost.
 
 ---
 
@@ -137,15 +138,13 @@ The `Mutator` class is a pure-static utility (or a free-function namespace). It 
 
 **Important**: `Robot` already implements `removeBar(idx)`, `removeNeuron(idx)`, `removeVertex(idx)` with full index patching of dependent parts. `addBar`, `addNeuron`, `addActuator` also handle `synapse_weights` resizing. Use these — do not manipulate the vectors directly.
 
-- [ ] **4.2.1 — Perturb (p = 0.10)**
+- [x] **4.2.1 — Perturb (p = 0.10)**
 
   Applied independently to bars and neurons; either or both can fire in one call.
 
   *Bars* (skip if `child.bars` is empty):
   - Pick a random bar index `b`.
-  - With equal probability, either:
-    - Perturb `bars[b].rest_length` by a ±10% uniform draw: `L *= uniform(0.9, 1.1)`. Clamp to `[0.01, 1.0]` m to prevent degenerate bars.
-    - Perturb `bars[b].stiffness` by ±20%: `k *= uniform(0.8, 1.2)`. Clamp to `[1000, 500000]` N/m.
+  - Perturb `bars[b].rest_length` by a ±10% uniform draw: `L *= uniform(0.9, 1.1)`. Clamp to `[0.01, 1.0]` m to prevent degenerate bars.
 
   *Neurons* (skip if `child.neurons` is empty):
   - Pick a random neuron index `n`.
@@ -153,7 +152,7 @@ The `Mutator` class is a pure-static utility (or a free-function namespace). It 
     - Perturb `neurons[n].threshold` by additive uniform draw in `[-0.5, +0.5]`. Clamp to `[0.0, 2.0]`.
     - Pick a random synapse index `s` (skip if `synapse_weights` is empty) and add uniform `[-0.5, +0.5]`. No clamping — weights can be negative to allow inhibition.
 
-- [ ] **4.2.2 — Add / Remove Element (p = 0.01)**
+- [x] **4.2.2 — Add / Remove Element (p = 0.01)**
 
   One coin flip per call: 50% add, 50% remove.
 
@@ -173,7 +172,7 @@ The `Mutator` class is a pure-static utility (or a free-function namespace). It 
   *Remove neuron* (requires ≥ 1 neuron):
   - Pick a random neuron index and call `child.removeNeuron(idx)`. This automatically patches actuator `neuron_idx` values, removes dependent actuators, and erases the column from all other neurons' `synapse_weights`.
 
-- [ ] **4.2.3 — Structural Split (p = 0.03)**
+- [x] **4.2.3 — Structural Split (p = 0.03)**
 
   One coin flip per call: 50% split vertex, 50% split bar.
 
@@ -193,24 +192,19 @@ The `Mutator` class is a pure-static utility (or a free-function namespace). It 
   - Add `Bar(v_mid, v2, L0/2, B.stiffness)` → index `b2`.
   - For each recorded actuator that was removed: re-add it pointing to `b1` (the first half), preserving its `neuron_idx` and `bar_range`. This ensures neural control is not lost.
 
-- [ ] **4.2.4 — Neural Attach / Detach (p = 0.03)**
+- [x] **4.2.4 — Neural Attach / Detach (p = 0.03)** *(refined: flip-toggle)*
 
-  One coin flip per call: 50% attach, 50% detach.
+  Picks a random bar and FLIPS its actuated state:
+  - If the bar is structural (no actuator): add `Actuator(bar, random_neuron, uniform[0,0.01])`. If no neuron exists yet, one is created via `addConnectedNeuron` first.
+  - If the bar is already actuated: remove ALL actuators targeting that bar (full detach).
 
-  *Attach* (requires ≥ 1 bar and ≥ 1 neuron):
-  - Pick random `bar_idx` and `neuron_idx`.
-  - `bar_range` = uniform `[0.0, 0.01]` — extension only; bars return to base rest length when the neuron quiesces.
-  - Call `child.addActuator(Actuator(bar_idx, neuron_idx, bar_range))`.
-  - No deduplication check needed — multiple actuators can target the same bar (they accumulate).
+  This matches the paper's spirit more faithfully than a separate add/remove coin-flip.
 
-  *Detach* (requires ≥ 1 actuator):
-  - Pick a random actuator index and call `child.removeActuator(idx)`.
+- [x] **4.2.4b — Topological Rewire Neuron (p = 0.03)** *(new operator)*
 
-- [ ] **4.2.5 — "At Least One" Guarantee**
+  `Mutator::rewireNeuron`: picks a random actuator and reassigns either its `bar_idx` (physical target) or its `neuron_idx` (neural source) to a different valid index (50/50). Requires ≥ 1 actuator and at least 2 bars or 2 neurons to have an effect. Returns false if unable.
 
-  After applying all four operators independently, check if any mutation actually modified the robot (track with a `bool any_fired` flag in each branch). If `any_fired == false`:
-  - Force-pick one of the four operators at random (uniform over 1–4).
-  - Re-apply it, skipping precondition guards (e.g. if "add element" is forced on an empty robot, always take the "add neuron" path since it has no preconditions).
+- [x] **4.2.5 — "At Least One" Guarantee** (updated for 5 operators)
 
 - [ ] **4.2.6 — Post-Mutation Validation**
 
@@ -297,7 +291,7 @@ The `Mutator` class is a pure-static utility (or a free-function namespace). It 
 
 #### 4.5 Tests
 
-- [ ] **`tests/test_mutator.cpp`** — 7 sub-tests, each seeded with `mt19937(42)`:
+- [x] **`tests/test_mutator.cpp`** — 7 sub-tests, each seeded with `mt19937(42)`:
   1. `test_perturb_bar`: seed robot with 2 vertices + 1 bar, call `mutate` 1000×, assert `isValid()` after each call.
   2. `test_perturb_neuron`: seed robot with 2 neurons, call 1000×, assert `isValid()`.
   3. `test_add_bar`: start from empty, call `mutate` until bar exists, verify `isValid()`.

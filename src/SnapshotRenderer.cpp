@@ -26,13 +26,16 @@ void SnapshotRenderer::render(const Robot& robot, const std::string& output_path
         BeginMode3D(m_camera);
             drawFloor(30, 0.1f);
             drawRobot(robot);
+            drawNeuralOverlay(robot, std::vector<double>{});
         EndMode3D();
 
-        // Overlay: robot ID in corner
-        DrawText(TextFormat("Robot id=%llu  v=%d  b=%d",
+        // Overlay: robot summary in corner
+        DrawText(TextFormat("Robot id=%llu  v=%d  b=%d  n=%d  a=%d",
                             (unsigned long long)robot.id,
                             (int)robot.vertices.size(),
-                            (int)robot.bars.size()),
+                            (int)robot.bars.size(),
+                            (int)robot.neurons.size(),
+                            (int)robot.actuators.size()),
                  10, 10, 16, RAYWHITE);
     EndDrawing();
 

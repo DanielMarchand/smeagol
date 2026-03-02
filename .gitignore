@@ -40,6 +40,8 @@ tmp_frames/
 *.yaml
 # Keep example YAMLs if you add them:
 !examples/**/*.yaml
+examples/random_robots/robots/*
+examples/mutator_demo/robots/*
 
 # ──────────────────────────────────────────────
 # Python

@@ -52,12 +52,15 @@ int Robot::addNeuron(const Neuron& n)
     const int new_idx = static_cast<int>(neurons.size());
 
     // Extend every existing neuron's weight vector by one zero entry
-    for (auto& existing : neurons)
+    for (auto& existing : neurons) {
         existing.synapse_weights.conservativeResize(new_idx + 1);
+        existing.synapse_weights[new_idx] = 0.0;   // zero the new column
+    }
 
     // The incoming neuron must have exactly new_idx+1 weights
     Neuron copy = n;
     copy.synapse_weights.conservativeResize(new_idx + 1);
+    copy.synapse_weights[new_idx] = 0.0;   // zero self-weight
     neurons.push_back(std::move(copy));
     return new_idx;
 }

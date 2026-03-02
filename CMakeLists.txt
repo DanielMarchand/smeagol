@@ -27,6 +27,8 @@ add_library(smeagol_core STATIC
     src/Simulator.cpp
     src/FitnessEvaluator.cpp
     src/RobotFactory.cpp
+    src/Mutator.cpp
+    src/Evolver.cpp
 )
 target_include_directories(smeagol_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(smeagol_core PUBLIC Eigen3::Eigen yaml-cpp raylib)
@@ -65,3 +67,9 @@ target_link_libraries(random_robots PRIVATE smeagol_core)
 
 add_executable(generate_robots tools/generate_robots.cpp)
 target_link_libraries(generate_robots PRIVATE smeagol_core)
+
+add_executable(demo_mutator tools/demo_mutator.cpp)
+target_link_libraries(demo_mutator PRIVATE smeagol_core)
+
+add_executable(evolve tools/evolve.cpp)
+target_link_libraries(evolve PRIVATE smeagol_core)

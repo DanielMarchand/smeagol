@@ -45,21 +45,48 @@ OUTPUT_MP4="$(grep '^output:' "$SIMULATE_CFG" | awk '{print $2}')"
 # Strip extension to build per-robot output paths
 MP4_BASE="${OUTPUT_MP4%.mp4}"
 
+PIDS=()
+TMPS=()
+NAMES=()
+OUTS=()
+
 for ROBOT in "${ROBOTS[@]}"; do
     NAME="$(basename "$ROBOT" .yaml)"
     OUT="${MP4_BASE}_${NAME}.mp4"
 
-    # Temporarily override the output field so each robot gets its own MP4.
-    # We write a patched config to a temp file rather than modifying simulate.yaml.
     TMPPARAMS="$(mktemp /tmp/simulate_XXXXXX.yaml)"
     sed "s|^output:.*|output: $OUT|" "$SIMULATE_CFG" > "$TMPPARAMS"
 
-    echo "============================================================"
-    echo " Step 2: Simulating $NAME  ($SIMULATE_CFG)"
-    echo "============================================================"
-    "$EVAL_BIN" "$ROBOT" "$TMPPARAMS" < /dev/null
-    rm -f "$TMPPARAMS"
+    echo "  Launching $NAME → $OUT"
+    "$EVAL_BIN" "$ROBOT" "$TMPPARAMS" < /dev/null \
+        > "/tmp/smeagol_log_${NAME}.txt" 2>&1 &
 
-    echo "  Video: ffplay $OUT"
-    echo ""
+    PIDS+=($!)
+    TMPS+=("$TMPPARAMS")
+    NAMES+=("$NAME")
+    OUTS+=("$OUT")
 done
+
+echo ""
+echo "All ${#PIDS[@]} robots running in parallel (PIDs: ${PIDS[*]})"
+echo ""
+
+# Wait for each job and report pass/fail as it finishes.
+ALL_OK=1
+for i in "${!PIDS[@]}"; do
+    if wait "${PIDS[$i]}"; then
+        echo "  ✓  ${NAMES[$i]} done  →  ${OUTS[$i]}"
+    else
+        echo "  ✗  ${NAMES[$i]} FAILED  (log: /tmp/smeagol_log_${NAMES[$i]}.txt)"
+        ALL_OK=0
+    fi
+    rm -f "${TMPS[$i]}"
+done
+
+echo ""
+if [[ $ALL_OK -eq 1 ]]; then
+    echo "All robots completed.  Videos:"
+    for OUT in "${OUTS[@]}"; do echo "  ffplay $OUT"; done
+else
+    echo "Some robots failed — check /tmp/smeagol_log_*.txt for details."
+fi

@@ -14,8 +14,8 @@ steps_per_cycle: 3000000  #25000   # 12 cycles for the entire simulation (60*500
 #step_size:       1.0e-6
 
 fps:             30
-num_frames:      200 # 200
-steps_per_frame: 3000000 # 10000
+num_frames:      100 # 200
+steps_per_frame: 2000000 # 10000
 step_size:       1.0e-7 #1e-7
 
 # Video output (base path — run.sh appends robot name)
