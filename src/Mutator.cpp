@@ -22,6 +22,7 @@
 #include "Actuator.h"
 #include "Materials.h"
 
+#include <yaml-cpp/yaml.h>
 #include <Eigen/Core>
 #include <algorithm>
 #include <cmath>
@@ -92,58 +93,98 @@ Eigen::Vector3d randomDirection(std::mt19937& rng)
 
 } // namespace
 
+// ── MutatorParams YAML I/O ────────────────────────────────────────────────────
+
+MutatorParams MutatorParams::fromYAML(const YAML::Node& n)
+{
+    MutatorParams p;
+    if (n["p_perturb"])              p.p_perturb              = n["p_perturb"].as<double>();
+    if (n["p_add_remove"])           p.p_add_remove           = n["p_add_remove"].as<double>();
+    if (n["p_split"])                p.p_split                = n["p_split"].as<double>();
+    if (n["p_attach"])               p.p_attach               = n["p_attach"].as<double>();
+    if (n["p_rewire"])               p.p_rewire               = n["p_rewire"].as<double>();
+    if (n["perturb_bar_frac"])       p.perturb_bar_frac       = n["perturb_bar_frac"].as<double>();
+    if (n["perturb_threshold_mag"])  p.perturb_threshold_mag  = n["perturb_threshold_mag"].as<double>();
+    if (n["perturb_weight_mag"])     p.perturb_weight_mag     = n["perturb_weight_mag"].as<double>();
+    if (n["bar_length_min"])         p.bar_length_min         = n["bar_length_min"].as<double>();
+    if (n["bar_length_max"])         p.bar_length_max         = n["bar_length_max"].as<double>();
+    if (n["threshold_min"])          p.threshold_min          = n["threshold_min"].as<double>();
+    if (n["threshold_max"])          p.threshold_max          = n["threshold_max"].as<double>();
+    if (n["split_vertex_offset"])    p.split_vertex_offset    = n["split_vertex_offset"].as<double>();
+    if (n["actuator_range_max"])     p.actuator_range_max     = n["actuator_range_max"].as<double>();
+    if (n["new_synapse_weight_min"]) p.new_synapse_weight_min = n["new_synapse_weight_min"].as<double>();
+    if (n["new_synapse_weight_max"]) p.new_synapse_weight_max = n["new_synapse_weight_max"].as<double>();
+    return p;
+}
+
+void MutatorParams::toYAML(YAML::Emitter& out) const
+{
+    out << YAML::Key << "p_perturb"             << YAML::Value << p_perturb;
+    out << YAML::Key << "p_add_remove"          << YAML::Value << p_add_remove;
+    out << YAML::Key << "p_split"               << YAML::Value << p_split;
+    out << YAML::Key << "p_attach"              << YAML::Value << p_attach;
+    out << YAML::Key << "p_rewire"              << YAML::Value << p_rewire;
+    out << YAML::Key << "perturb_bar_frac"      << YAML::Value << perturb_bar_frac;
+    out << YAML::Key << "perturb_threshold_mag" << YAML::Value << perturb_threshold_mag;
+    out << YAML::Key << "perturb_weight_mag"    << YAML::Value << perturb_weight_mag;
+    out << YAML::Key << "bar_length_min"        << YAML::Value << bar_length_min;
+    out << YAML::Key << "bar_length_max"        << YAML::Value << bar_length_max;
+    out << YAML::Key << "threshold_min"         << YAML::Value << threshold_min;
+    out << YAML::Key << "threshold_max"         << YAML::Value << threshold_max;
+    out << YAML::Key << "split_vertex_offset"   << YAML::Value << split_vertex_offset;
+    out << YAML::Key << "actuator_range_max"    << YAML::Value << actuator_range_max;
+    out << YAML::Key << "new_synapse_weight_min"<< YAML::Value << new_synapse_weight_min;
+    out << YAML::Key << "new_synapse_weight_max"<< YAML::Value << new_synapse_weight_max;
+}
+
 // ── mutate() ─────────────────────────────────────────────────────────────────
 
-void Mutator::mutate(Robot& robot, std::mt19937& rng)
+void Mutator::mutate(Robot& robot, std::mt19937& rng, const MutatorParams& params)
 {
-    constexpr double P_PERTURB    = 0.10;
-    constexpr double P_ADD_REMOVE = 0.01;
-    constexpr double P_SPLIT      = 0.03;
-    constexpr double P_ATTACH     = 0.03;
-    constexpr double P_REWIRE     = 0.03;
-
     bool any_fired = false;
 
-    if (uniform01(rng) < P_PERTURB)
-        any_fired |= perturbElement(robot, rng);
+    if (uniform01(rng) < params.p_perturb)
+        any_fired |= perturbElement(robot, rng, params);
 
-    if (uniform01(rng) < P_ADD_REMOVE)
-        any_fired |= addRemoveElement(robot, rng);
+    if (uniform01(rng) < params.p_add_remove)
+        any_fired |= addRemoveElement(robot, rng, params);
 
-    if (uniform01(rng) < P_SPLIT)
-        any_fired |= splitElement(robot, rng);
+    if (uniform01(rng) < params.p_split)
+        any_fired |= splitElement(robot, rng, params);
 
-    if (uniform01(rng) < P_ATTACH)
-        any_fired |= attachDetach(robot, rng);
+    if (uniform01(rng) < params.p_attach)
+        any_fired |= attachDetach(robot, rng, params);
 
-    if (uniform01(rng) < P_REWIRE)
-        any_fired |= rewireNeuron(robot, rng);
+    if (uniform01(rng) < params.p_rewire)
+        any_fired |= rewireNeuron(robot, rng, params);
 
     if (!any_fired) {
         const int op = uniformInt(rng, 0, 4);
         switch (op) {
-            case 0: any_fired = perturbElement(robot, rng);    break;
-            case 1: any_fired = addRemoveElement(robot, rng);  break;
-            case 2: any_fired = splitElement(robot, rng);      break;
-            case 3: any_fired = attachDetach(robot, rng);      break;
-            case 4: any_fired = rewireNeuron(robot, rng);      break;
+            case 0: any_fired = perturbElement(robot, rng, params);    break;
+            case 1: any_fired = addRemoveElement(robot, rng, params);  break;
+            case 2: any_fired = splitElement(robot, rng, params);      break;
+            case 3: any_fired = attachDetach(robot, rng, params);      break;
+            case 4: any_fired = rewireNeuron(robot, rng, params);      break;
         }
         if (!any_fired)
-            addConnectedNeuron(robot, rng);   // always succeeds
+            addConnectedNeuron(robot, rng, params);   // always succeeds
     }
 }
 
 // ── perturbElement() ─────────────────────────────────────────────────────────
 
-bool Mutator::perturbElement(Robot& robot, std::mt19937& rng)
+bool Mutator::perturbElement(Robot& robot, std::mt19937& rng, const MutatorParams& params)
 {
     bool fired = false;
 
-    // ── Bars: nudge rest_length by ±10% ─────────────────────────────────────
+    // ── Bars: nudge rest_length by ±perturb_bar_frac ─────────────────────────
     if (!robot.bars.empty()) {
         const int b = uniformInt(rng, 0, static_cast<int>(robot.bars.size()) - 1);
-        robot.bars[b].rest_length *= uniformReal(rng, 0.9, 1.1);
-        robot.bars[b].rest_length  = std::clamp(robot.bars[b].rest_length, 0.01, 1.0);
+        robot.bars[b].rest_length *= uniformReal(rng,
+            1.0 - params.perturb_bar_frac, 1.0 + params.perturb_bar_frac);
+        robot.bars[b].rest_length  = std::clamp(robot.bars[b].rest_length,
+            params.bar_length_min, params.bar_length_max);
         fired = true;
     }
 
@@ -153,13 +194,16 @@ bool Mutator::perturbElement(Robot& robot, std::mt19937& rng)
 
         const bool no_weights = (robot.neurons[n].synapse_weights.size() == 0);
         if (uniform01(rng) < 0.5 || no_weights) {
-            robot.neurons[n].threshold += uniformReal(rng, -0.5, 0.5);
-            robot.neurons[n].threshold  = std::clamp(robot.neurons[n].threshold, 0.0, 2.0);
+            robot.neurons[n].threshold += uniformReal(rng,
+                -params.perturb_threshold_mag, params.perturb_threshold_mag);
+            robot.neurons[n].threshold  = std::clamp(robot.neurons[n].threshold,
+                params.threshold_min, params.threshold_max);
             fired = true;
         } else {
             const int s = uniformInt(rng, 0,
                 static_cast<int>(robot.neurons[n].synapse_weights.size()) - 1);
-            robot.neurons[n].synapse_weights[s] += uniformReal(rng, -0.5, 0.5);
+            robot.neurons[n].synapse_weights[s] += uniformReal(rng,
+                -params.perturb_weight_mag, params.perturb_weight_mag);
             fired = true;
         }
     }
@@ -174,14 +218,15 @@ bool Mutator::perturbElement(Robot& robot, std::mt19937& rng)
 // neuron.  If there are no other neurons but bars exist, an actuator is also
 // added to give it a physical role.  Always succeeds.
 
-void Mutator::addConnectedNeuron(Robot& robot, std::mt19937& rng)
+void Mutator::addConnectedNeuron(Robot& robot, std::mt19937& rng, const MutatorParams& params)
 {
     const int N = static_cast<int>(robot.neurons.size());
 
     Eigen::VectorXd w = Eigen::VectorXd::Zero(N);
     if (N > 0) {
         const int src = uniformInt(rng, 0, N - 1);
-        w[src] = uniformReal(rng, 0.5, 1.5) * (uniform01(rng) < 0.5 ? 1.0 : -1.0);
+        w[src] = uniformReal(rng, params.new_synapse_weight_min, params.new_synapse_weight_max)
+                 * (uniform01(rng) < 0.5 ? 1.0 : -1.0);
     }
 
     const int new_n = robot.addNeuron(
@@ -191,7 +236,7 @@ void Mutator::addConnectedNeuron(Robot& robot, std::mt19937& rng)
     // physical influence (otherwise it would be permanently isolated).
     if (N == 0 && !robot.bars.empty()) {
         const int bi = uniformInt(rng, 0, static_cast<int>(robot.bars.size()) - 1);
-        robot.addActuator(Actuator(bi, new_n, uniformReal(rng, 0.0, 0.01)));
+        robot.addActuator(Actuator(bi, new_n, uniformReal(rng, 0.0, params.actuator_range_max)));
     }
 }
 
@@ -209,14 +254,15 @@ void Mutator::addConnectedNeuron(Robot& robot, std::mt19937& rng)
 //     Use their actual Euclidean distance as rest_length.
 //     Enforces uniqueness: no duplicate vertex pairs.
 
-bool Mutator::addBarMutation(Robot& robot, std::mt19937& rng)
+bool Mutator::addBarMutation(Robot& robot, std::mt19937& rng, const MutatorParams& params)
 {
     const int nv = static_cast<int>(robot.vertices.size());
     const double median_len = medianBarLength(robot);
 
     // Strategy A ─────────────────────────────────────────────────────────────
     auto strategyA = [&]() -> bool {
-        const double len = std::clamp(median_len, 0.01, 1.0);
+        const double len = std::clamp(median_len,
+            params.bar_length_min, params.bar_length_max);
         if (nv == 0) {
             // Bootstrap: first two vertices from scratch, both above the floor
             robot.addVertex(Vertex(0.0, 0.0, kFloorZ));
@@ -266,13 +312,13 @@ bool Mutator::addBarMutation(Robot& robot, std::mt19937& rng)
 
 // ── addRemoveElement() ───────────────────────────────────────────────────────
 
-bool Mutator::addRemoveElement(Robot& robot, std::mt19937& rng)
+bool Mutator::addRemoveElement(Robot& robot, std::mt19937& rng, const MutatorParams& params)
 {
     if (uniform01(rng) < 0.5) {
         // ADD
         if (uniform01(rng) < 0.5)
-            return addBarMutation(robot, rng);
-        addConnectedNeuron(robot, rng);
+            return addBarMutation(robot, rng, params);
+        addConnectedNeuron(robot, rng, params);
         return true;
     }
     else {
@@ -300,7 +346,7 @@ bool Mutator::addRemoveElement(Robot& robot, std::mt19937& rng)
 
 // ── splitElement() ───────────────────────────────────────────────────────────
 
-bool Mutator::splitElement(Robot& robot, std::mt19937& rng)
+bool Mutator::splitElement(Robot& robot, std::mt19937& rng, const MutatorParams& params)
 {
     const bool has_vertex = !robot.vertices.empty();
     const bool has_bar    = !robot.bars.empty();
@@ -315,10 +361,11 @@ bool Mutator::splitElement(Robot& robot, std::mt19937& rng)
     if (split_vertex) {
         const int v = uniformInt(rng, 0,
             static_cast<int>(robot.vertices.size()) - 1);
+        const double o = params.split_vertex_offset;
         const Eigen::Vector3d offset(
-            uniformReal(rng, -0.01, 0.01),
-            uniformReal(rng, -0.01, 0.01),
-            uniformReal(rng, -0.01, 0.01));
+            uniformReal(rng, -o, o),
+            uniformReal(rng, -o, o),
+            uniformReal(rng, -o, o));
         Eigen::Vector3d new_pos = robot.vertices[v].pos + offset;
         new_pos.z() = std::max(new_pos.z(), kFloorZ);
         const int v_new = robot.addVertex(Vertex(new_pos));
@@ -365,7 +412,7 @@ bool Mutator::splitElement(Robot& robot, std::mt19937& rng)
 //   structural → actuated:  add Actuator(bar, random_neuron, random_range)
 //   actuated   → structural: remove ALL actuators targeting that bar
 
-bool Mutator::attachDetach(Robot& robot, std::mt19937& rng)
+bool Mutator::attachDetach(Robot& robot, std::mt19937& rng, const MutatorParams& params)
 {
     if (robot.bars.empty()) return false;
 
@@ -390,11 +437,11 @@ bool Mutator::attachDetach(Robot& robot, std::mt19937& rng)
     else {
         // Attach: wire to a random neuron (create one if needed)
         if (robot.neurons.empty())
-            addConnectedNeuron(robot, rng);
+            addConnectedNeuron(robot, rng, params);
         const int neuron_idx = uniformInt(rng, 0,
             static_cast<int>(robot.neurons.size()) - 1);
         robot.addActuator(Actuator(bar_idx, neuron_idx,
-                                   uniformReal(rng, 0.0, 0.01)));
+                                   uniformReal(rng, 0.0, params.actuator_range_max)));
         return true;
     }
 }
@@ -405,7 +452,7 @@ bool Mutator::attachDetach(Robot& robot, std::mt19937& rng)
 // bar_idx (physical target) or its neuron_idx (neural source) to a new,
 // different index.  50/50 which end gets rewired.
 
-bool Mutator::rewireNeuron(Robot& robot, std::mt19937& rng)
+bool Mutator::rewireNeuron(Robot& robot, std::mt19937& rng, const MutatorParams& /*params*/)
 {
     if (robot.actuators.empty()) return false;
 

@@ -317,6 +317,46 @@ static void test_rewire_neuron()
     std::cout << "PASS  test_rewire_neuron\n";
 }
 
+// ── MutatorParams YAML round-trip ─────────────────────────────────────────────
+
+static void test_mutator_params_yaml()
+{
+    // Build a non-default MutatorParams.
+    MutatorParams mp;
+    mp.p_perturb            = 0.20;
+    mp.p_add_remove         = 0.05;
+    mp.perturb_bar_frac     = 0.25;
+    mp.bar_length_min       = 0.02;
+    mp.new_synapse_weight_max = 2.0;
+
+    // Serialise to a YAML string.
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    mp.toYAML(out);
+    out << YAML::EndMap;
+    CHECK(out.good());
+
+    // Parse back and round-trip check.
+    const YAML::Node node = YAML::Load(out.c_str());
+    const MutatorParams mp2 = MutatorParams::fromYAML(node);
+
+    CHECK(mp2.p_perturb            == mp.p_perturb);
+    CHECK(mp2.p_add_remove         == mp.p_add_remove);
+    CHECK(mp2.p_split              == mp.p_split);        // default preserved
+    CHECK(mp2.perturb_bar_frac     == mp.perturb_bar_frac);
+    CHECK(mp2.bar_length_min       == mp.bar_length_min);
+    CHECK(mp2.new_synapse_weight_max == mp.new_synapse_weight_max);
+
+    // fromYAML on an empty node must produce defaults.
+    const YAML::Node empty = YAML::Load("{}");
+    const MutatorParams def = MutatorParams::fromYAML(empty);
+    CHECK(def.p_perturb    == 0.10);
+    CHECK(def.p_add_remove == 0.01);
+    CHECK(def.p_split      == 0.03);
+
+    std::cout << "PASS  test_mutator_params_yaml\n";
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main()
@@ -330,6 +370,7 @@ int main()
     test_attach_detach();
     test_add_neuron_connected();
     test_rewire_neuron();
+    test_mutator_params_yaml();
 
     if (g_failures == 0) {
         std::cout << "\nAll mutator tests passed.\n";

@@ -2,8 +2,43 @@ population_size: 200
 max_evaluations: 100000
 seed: 42
 video_interval: 1000
+
 fitness:
   cycles: 12
   steps_per_cycle: 5000
   step_size: 1.0e-7
   wind: 0.0
+
+# Mutation knobs — all optional, shown here at their defaults
+# (values match Lipson & Pollack 2000)
+mutation:
+  # Per-operator firing probabilities
+  p_perturb:    0.10
+  p_add_remove: 0.01
+  p_split:      0.03
+  p_attach:     0.03
+  p_rewire:     0.03
+
+  # perturbElement: bar rest-length multiplied by U[1-f, 1+f]
+  perturb_bar_frac:      0.10
+  # perturbElement: additive threshold / weight delta drawn from U[-m, +m]
+  perturb_threshold_mag: 0.50
+  perturb_weight_mag:    0.50
+
+  # Bar rest-length clamp (perturbElement + addBarMutation)
+  bar_length_min: 0.01
+  bar_length_max: 1.00
+
+  # Neuron threshold clamp
+  threshold_min: 0.00
+  threshold_max: 2.00
+
+  # splitElement: vertex offset drawn from U[-v, +v] per component
+  split_vertex_offset: 0.01
+
+  # attachDetach: new actuator bar_range drawn from U[0, r]
+  actuator_range_max: 0.01
+
+  # addConnectedNeuron: |synapse weight| drawn from U[min, max]
+  new_synapse_weight_min: 0.50
+  new_synapse_weight_max: 1.50

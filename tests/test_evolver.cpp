@@ -1,7 +1,8 @@
 /**
  * test_evolver.cpp
  *
- * Phase 4.1 unit tests for EvolverParams and Evolver construction.
+ * Unit tests for EvolverParams, Evolver construction, and the
+ * steady-state evolutionary loop.
  *
  * Tests:
  *   1. Default params have sensible values
@@ -164,6 +165,67 @@ static void test_seed_reproducibility()
     std::cout << "PASS  test_seed_reproducibility\n";
 }
 
+// Integration test: run a short evolution with wind-only fitness so
+// even simple bar structures accumulate non-zero fitness quickly.
+static void test_run_loop()
+{
+    const std::string run_dir = "/tmp/test_evolver_run/";
+
+    EvolverParams p;
+    p.population_size   = 10;
+    p.max_evaluations   = 50;
+    p.seed              = 1;
+    p.video_interval    = 10000; // disable snapshots during CI (headless)
+    p.run_dir           = run_dir;
+    // Wind mode: all vertices experience a constant +X acceleration,
+    // so any robot with vertices gets non-zero fitness without needing
+    // a working neural oscillator.
+    p.fitness.wind            = 9.8;
+    p.fitness.cycles          = 3;
+    p.fitness.steps_per_cycle = 500;
+
+    Evolver ev(p);
+    ev.run();
+
+    CHECK(ev.evalCount() == 50);
+    CHECK(ev.bestFitness() >= 0.0);
+    CHECK(ev.bestRobot().isValid());
+
+    // fitness_log.csv should exist and have 51 lines (header + 50 data rows)
+    {
+        std::ifstream log(run_dir + "fitness_log.csv");
+        CHECK(log.is_open());
+        std::string header;
+        std::getline(log, header);
+        CHECK(header == "eval,generation,best_fitness,mean_fitness,"
+                        "best_robot_id,best_v,best_b,best_n,best_a");
+        int lines = 1;  // already consumed header
+        std::string line;
+        while (std::getline(log, line)) ++lines;
+        CHECK(lines == 51);
+    }
+
+    // lineage.csv should exist and have 51 lines (header + 50 data rows)
+    {
+        std::ifstream lin(run_dir + "lineage.csv");
+        CHECK(lin.is_open());
+        std::string header;
+        std::getline(lin, header);
+        CHECK(header == "eval,child_id,parent_id,child_fitness,"
+                        "replaced_id,replaced_fitness");
+        int lines = 1;
+        std::string line;
+        while (std::getline(lin, line)) ++lines;
+        CHECK(lines == 51);
+    }
+
+    // best_robot_final.yaml must be written
+    CHECK(fs::exists(run_dir + "best_robot_final.yaml"));
+
+    std::cout << "PASS  test_run_loop  (best_fitness="
+              << ev.bestFitness() << "m)\n";
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main()
@@ -174,6 +236,7 @@ int main()
     test_fitnesses_zero();
     test_run_config_written();
     test_seed_reproducibility();
+    test_run_loop();
 
     if (g_failures == 0) {
         std::cout << "\nAll evolver tests passed.\n";

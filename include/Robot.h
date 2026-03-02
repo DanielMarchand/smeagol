@@ -42,6 +42,9 @@ public:
     /// Deep-copy: all parts cloned, id preserved, new runtime state.
     [[nodiscard]] Robot clone() const;
 
+    /// Returns the next unique ID without constructing a Robot.
+    static ID nextId() { return s_next_id++; }
+
     // ── Part mutators ─────────────────────────────────────────────────────
 
     /// Append a vertex; returns its new index.
@@ -110,7 +113,7 @@ public:
      */
     [[nodiscard]] bool isValid() const;
 
-    // ── YAML I/O (implemented in phase 1.4) ──────────────────────────────
+    // ── YAML I/O ───────────────────────────────────────────────────
 
     void toYAML(const std::string& path) const;
     static Robot fromYAML(const std::string& path);

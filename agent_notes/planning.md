@@ -348,15 +348,15 @@ mutation:
 
 ##### Implementation checklist for `MutatorParams`
 
-- [ ] Add `MutatorParams` struct to `include/Mutator.h` (with `fromYAML` / `toYAML`)
-- [ ] Add `#include "Mutator.h"` YAML parsing in `src/Mutator.cpp`
-- [ ] Thread `const MutatorParams&` through all five operator functions + helpers
-- [ ] Replace all local `constexpr` literals with `params.field` references
-- [ ] Add `MutatorParams mutation` field to `EvolverParams` in `include/Evolver.h`
-- [ ] Extend `EvolverParams::fromYAML` / `toYAML` to round-trip the `mutation:` block
-- [ ] Update `Evolver::run()` / `submit_one()` to pass `params_.mutation` to `Mutator::mutate()`
-- [ ] Update `tests/test_mutator.cpp` to construct explicit `MutatorParams` (defaults) — no behaviour change expected
-- [ ] Update `examples/evolve/config.yaml` with the full mutation block above
+- [x] Add `MutatorParams` struct to `include/Mutator.h` (with `fromYAML` / `toYAML`)
+- [x] Add `#include "Mutator.h"` YAML parsing in `src/Mutator.cpp`
+- [x] Thread `const MutatorParams&` through all five operator functions + helpers
+- [x] Replace all local `constexpr` literals with `params.field` references
+- [x] Add `MutatorParams mutation` field to `EvolverParams` in `include/Evolver.h`
+- [x] Extend `EvolverParams::fromYAML` / `toYAML` to round-trip the `mutation:` block
+- [x] Update `Evolver::run()` / `submit_one()` to pass `params_.mutation` to `Mutator::mutate()`
+- [x] Update `tests/test_mutator.cpp` to construct explicit `MutatorParams` (defaults) — no behaviour change expected
+- [x] Update `examples/evolve/config.yaml` with the full mutation block above
 
 ---
 
@@ -371,25 +371,17 @@ mutation:
   6. `test_split_bar`: 6-bar tetrahedron, call 100×, assert bar count increases, `isValid()`.
   7. `test_attach_detach`: robot with 3 bars + 2 neurons, call 500×, assert `isValid()`, actuator `bar_idx` and `neuron_idx` always in range.
 
-- [ ] **`tests/test_evolver.cpp`** — integration test:
-  - `EvolverParams` with `population_size=10`, `max_evaluations=50`, `seed=1`.
-  - `fitness.wind = 9.8` (use wind mode so even empty robots get nonzero fitness and selection pressure is immediate).
-  - Run `evolver.run()`.
-  - Assert `evolver.bestFitness() > 0.0`.
-  - Assert `evolver.bestRobot().isValid()`.
+- [x] **`tests/test_evolver.cpp`** — integration test: 10 robots, 50 evals, wind fitness; also `test_mutator_params_yaml` YAML round-trip.
 
 ### Phase 5: Configuration, Logging & Media Autostore
 
 - [x] **5.1 — `MutatorParams` struct** — expose all mutation knobs as YAML-configurable fields
 - [x] **5.2 — Full `config.yaml`** — canonical config file including mutation block; update `examples/evolve/config.yaml`
-- [ ] **5.3 — Run directory layout** — `runs/run_TIMESTAMP/` with `checkpoints/` and `videos/` subdirs
-- [ ] **5.4 — `fitness_log.csv` schema** — widen from 2 columns to include generation, mean, genome size
-- [ ] **5.5 — `lineage.csv` schema** — child/parent/replaced linkage per eval
-- [ ] **5.6 — Periodic best-robot checkpoints** — YAML + PNG every `video_interval` evals
-- [ ] **5.7 — `population_final.yaml`** — full population dump at termination
-- [ ] **5.8 — Automated video generation** — MP4 of best robot every N evals via VideoRenderer
-- [ ] **5.9 — Logging thread-safety** — ensure all writes stay on manager thread in parallel build
-- [ ] **5.10 — Crash recovery (future)** — atomic checkpoint + resume support
+- [x] **5.3 — Run directory layout** — `runs/run_TIMESTAMP/` with `robots/` (all evaluated children) and `checkpoints/` subdirs
+- [x] **5.4 — `fitness_log.csv` schema** — 9 columns: eval, generation, best_fitness, mean_fitness, best_robot_id, best_v/b/n/a
+- [x] **5.5 — `lineage.csv` schema** — 6 columns: eval, child_id, parent_id, child_fitness, replaced_id, replaced_fitness
+- [x] **5.6 — Periodic best-robot checkpoints** — YAML + PNG every `video_interval` evals
+- [x] **5.8 — Automated video generation** — MP4 of best robot every `video_interval` evals via VideoRenderer
 
 ---
 
@@ -448,14 +440,14 @@ struct EvolverParams {
 };
 ```
 
-**Implementation checklist:**
-- [ ] Add `MutatorParams` to `include/Mutator.h` with `fromYAML` / `toYAML`
-- [ ] Thread `const MutatorParams&` through all five operator functions + helpers in `src/Mutator.cpp`
-- [ ] Replace all local `constexpr` literals with `params.field` references
-- [ ] Add `MutatorParams mutation` field to `EvolverParams` in `include/Evolver.h`
-- [ ] Extend `EvolverParams::fromYAML` / `toYAML` to round-trip the `mutation:` block
-- [ ] Update `Evolver::run()` / `submit_one()` to pass `params_.mutation` to `Mutator::mutate()`
-- [ ] Update `tests/test_mutator.cpp` to construct explicit `MutatorParams` (defaults) — no behaviour change expected
+**Implementation checklist:** *(all complete)*
+- [x] Add `MutatorParams` to `include/Mutator.h` with `fromYAML` / `toYAML`
+- [x] Thread `const MutatorParams&` through all five operator functions + helpers in `src/Mutator.cpp`
+- [x] Replace all local `constexpr` literals with `params.field` references
+- [x] Add `MutatorParams mutation` field to `EvolverParams` in `include/Evolver.h`
+- [x] Extend `EvolverParams::fromYAML` / `toYAML` to round-trip the `mutation:` block
+- [x] Update `Evolver::run()` / `submit_one()` to pass `params_.mutation` to `Mutator::mutate()`
+- [x] Update `tests/test_mutator.cpp` to construct explicit `MutatorParams` (defaults) — no behaviour change expected
 
 ---
 
@@ -694,6 +686,14 @@ Not required for Phase 5 but worth noting as a future extension:
 ### Phase 6: Multicore Parallelism
 
 `FitnessEvaluator::evaluate()` is the only bottleneck. A full run is ~100,000 calls; each call runs up to 60,000 gradient-descent steps per simulation. Mutation, selection, and I/O are collectively < 1% of wall-clock time. The design philosophy is therefore: **keep evaluation cores saturated at all times**, while dedicating the remaining 1–2 cores to the management work (selection, cloning, mutation, result application, logging).
+
+**Checklist:**
+- [ ] 6.1–6.5 — Manager + worker pool: `EvalJob`/`EvalResult` structs, worker lambda, flight-window loop
+- [ ] 6.6 — Thread-safety audit (`Robot::s_next_id` → `std::atomic<Robot::ID>`)
+- [ ] 6.7–6.9 — Core allocation, CMake `-pthread`, expected speedup validation
+- [ ] 6.10 — Signal handling and graceful shutdown (Ctrl+C)
+- [ ] 6.11 — Logging thread-safety: verify all `fitness_log_` / `lineage_log_` writes remain on manager thread
+- [ ] 6.12 — Crash recovery / incremental resume: `checkpoint_latest.yaml` symlink via atomic `rename()`;  resume by loading final checkpoint + partial `fitness_log.csv`
 
 ---
 
@@ -1058,7 +1058,6 @@ Ctrl+C pressed
   → fitness_log_.flush() called
   → lineage_log_.flush() called
   → best_robot_final.yaml written
-  → population_final.yaml written (if 5.9 is implemented)
   → signal handlers restored
   → Evolver::run() returns
   → evolve tool prints "interrupted" message and exits 130

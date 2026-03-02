@@ -1,15 +1,16 @@
 /**
  * evolve.cpp
  *
- * CLI entry point for the evolutionary loop (Phase 4.3).
+ * CLI entry point for the evolutionary loop.
  *
  * Usage:
  *   evolve [config.yaml]
  *
  * If no config file is given, runs with all-default EvolverParams.
  * The run directory (runs/run_<timestamp>/) is created automatically and
- * contains run_config.yaml (resolved params), fitness_log.csv, and
- * periodic best-robot snapshots.
+ * contains run_config.yaml (resolved params), fitness_log.csv, periodic
+ * best-robot snapshots and videos, and a robots/ archive of every
+ * evaluated child.
  *
  * Example config.yaml:
  *   population_size: 200
@@ -47,7 +48,6 @@ int main(int argc, char* argv[])
         Evolver ev(params);
         ev.run();
     } catch (const std::logic_error& e) {
-        // run() is a Phase 4.3 stub — expected until that phase is implemented
         std::cerr << "[evolve] " << e.what() << "\n";
         return 2;
     } catch (const std::exception& e) {

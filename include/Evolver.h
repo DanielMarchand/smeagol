@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FitnessEvaluator.h"
+#include "Mutator.h"
 #include "Robot.h"
 
 #include <fstream>
@@ -34,6 +35,7 @@ struct EvolverParams
     int         max_evaluations = 100'000;
     int         seed            = 42;   ///< 0 → seed from std::random_device
     FitnessParams fitness;
+    MutatorParams mutation;             ///< mutation knobs (all have defaults)
     int         video_interval  = 1000; ///< save best-robot video every N evals
     std::string run_dir         = "";   ///< auto-set to runs/run_<timestamp>/
 
@@ -52,7 +54,11 @@ struct EvolverParams
  * @brief Steady-state evolutionary loop — Lipson & Pollack (2000) §2.
  *
  * Construction initialises the population (all empty robots, all zero fitness)
- * and creates the run directory.  Call run() to start the evolutionary loop.
+ * and creates the run directory with subdirectories:
+ *   robots/       — YAML archive of every child placed in the population
+ *   checkpoints/  — periodic best-robot YAML, PNG, and MP4 snapshots
+ *
+ * Call run() to start the evolutionary loop.
  *
  * Typical usage:
  * @code
@@ -69,6 +75,8 @@ public:
     /**
      * Run the evolutionary loop until eval_count_ >= params_.max_evaluations.
      * Each iteration: select parent → clone → mutate → evaluate → replace.
+     * Every placed child is saved to robots/robot_<id>.yaml.
+     * Every video_interval evals: YAML + PNG + MP4 written to checkpoints/.
      */
     void run();
 
@@ -83,7 +91,7 @@ private:
 
     // ── inner loop helpers ─────────────────────────────────────────────────
     void evaluateOne(int idx);              ///< run fitness eval, update fitnesses_[idx]
-    void maybeSaveSnapshot(int eval_num);   ///< write video if on video_interval
+    void maybeSaveSnapshot(int eval_num);   ///< write YAML+PNG+MP4 to checkpoints/ when on video_interval
 
     // ── state ──────────────────────────────────────────────────────────────
     EvolverParams           params_;
@@ -93,5 +101,6 @@ private:
     int                     eval_count_ = 0;
     int                     best_idx_   = 0;
 
-    std::ofstream           fitness_log_;    ///< eval_count, best_fitness per row
+    std::ofstream           fitness_log_;    ///< eval,generation,best_fitness,... per row
+    std::ofstream           lineage_log_;    ///< eval,child_id,parent_id,... per row
 };
