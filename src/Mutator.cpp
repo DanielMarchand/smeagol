@@ -222,15 +222,30 @@ void Mutator::addConnectedNeuron(Robot& robot, std::mt19937& rng, const MutatorP
 {
     const int N = static_cast<int>(robot.neurons.size());
 
+    // Build the new neuron's input weight vector: all inputs randomised,
+    // matching RobotFactory::randomRobot which sets every weight randomly.
+    // Previously only ONE weight was non-zero here, plus addNeuron() always
+    // zeros the new-neuron column in all existing neurons — leaving most of
+    // the connectivity dead and unrecoverable except by slow perturbation.
     Eigen::VectorXd w = Eigen::VectorXd::Zero(N);
-    if (N > 0) {
-        const int src = uniformInt(rng, 0, N - 1);
-        w[src] = uniformReal(rng, params.new_synapse_weight_min, params.new_synapse_weight_max)
-                 * (uniform01(rng) < 0.5 ? 1.0 : -1.0);
-    }
+    for (int j = 0; j < N; ++j)
+        w[j] = uniformReal(rng, params.new_synapse_weight_min, params.new_synapse_weight_max);
 
-    const int new_n = robot.addNeuron(
-        Neuron(uniformReal(rng, 0.0, 1.0), w));
+    Neuron new_neuron(uniformReal(rng, 0.0, 1.0), w);
+    // Seed activation randomly (0 or 1) so the network can fire immediately,
+    // matching RobotFactory::randomRobot behaviour.  All-zero activations mean
+    // weighted_sum == 0 on every tick, so a network born with threshold > 0
+    // would never fire at all without this kickstart.
+    new_neuron.activation = (uniform01(rng) < 0.5) ? 1.0 : 0.0;
+    const int new_n = robot.addNeuron(std::move(new_neuron));
+
+    // addNeuron() always zeros the new column in every existing neuron
+    // (existing[i].synapse_weights[new_n] = 0).  Randomise those now so
+    // existing neurons can also receive signal from the new one — again
+    // matching RobotFactory's fully-connected random initialisation.
+    for (int i = 0; i < N; ++i)
+        robot.neurons[i].synapse_weights[new_n] =
+            uniformReal(rng, params.new_synapse_weight_min, params.new_synapse_weight_max);
 
     // If this is the only neuron and bars exist, wire an actuator so it has
     // physical influence (otherwise it would be permanently isolated).
