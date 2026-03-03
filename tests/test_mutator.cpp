@@ -114,17 +114,22 @@ static void test_add_bar()
         CHECK(got_bar);
     }
 
-    // Strategy B: two vertices, no bars – bar can be added via existing-vertices
+    // Strategy B: three vertices in a chain (0-1-2) with the (0,2) bar missing
+    // – addBarMutation's existing-vertex path can close the triangle.
+    // Starting with a valid connected base satisfies the no-isolated-vertex rule.
     {
         Robot base;
         base.addVertex(Vertex(0.0, 0.0, 0.0));
         base.addVertex(Vertex(0.1, 0.0, 0.0));
+        base.addVertex(Vertex(0.2, 0.0, 0.0));
+        base.addBar(Bar(0, 1, 0.1));
+        base.addBar(Bar(1, 2, 0.1));
         bool got_bar = false;
         for (int i = 0; i < 500; ++i) {
             Robot copy = base.clone();
             Mutator::addRemoveElement(copy, rng);
             CHECK(copy.isValid());
-            if (!copy.bars.empty()) {
+            if (copy.bars.size() > base.bars.size()) {
                 got_bar = true;
                 // All bar vertex indices must be in-bounds and distinct
                 for (const auto& b : copy.bars)

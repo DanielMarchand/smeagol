@@ -213,7 +213,56 @@ bool Robot::isValid() const
         if (n.synapse_weights.size() != nn) return false;
     }
 
+    // Isolated-vertex check: every vertex must be an endpoint of some bar,
+    // UNLESS the robot is a degenerate single-vertex, zero-bar individual.
+    if (nv > 1) {
+        std::vector<bool> referenced(nv, false);
+        for (const auto& b : bars) {
+            referenced[b.v1] = true;
+            referenced[b.v2] = true;
+        }
+        for (int i = 0; i < nv; ++i)
+            if (!referenced[i]) return false;
+    }
+
     return true;
+}
+
+// ── Structural cleanup ────────────────────────────────────────────────────────
+
+void Robot::pruneIsolatedVertices()
+{
+    const int nv = static_cast<int>(vertices.size());
+    if (nv <= 1) return;  // single-vertex robots are always valid as-is
+
+    // Mark which vertices are actually referenced by at least one bar.
+    std::vector<bool> referenced(nv, false);
+    for (const auto& b : bars) {
+        referenced[b.v1] = true;
+        referenced[b.v2] = true;
+    }
+
+    // Build old-index → new-index map (-1 = vertex will be removed).
+    std::vector<int> remap(nv, -1);
+    int new_idx = 0;
+    for (int i = 0; i < nv; ++i)
+        if (referenced[i]) remap[i] = new_idx++;
+
+    if (new_idx == nv) return;  // nothing to prune
+
+    // Compact the vertex array.
+    std::vector<Vertex> new_verts;
+    new_verts.reserve(new_idx);
+    for (int i = 0; i < nv; ++i)
+        if (referenced[i]) new_verts.push_back(vertices[i]);
+    vertices = std::move(new_verts);
+
+    // Patch bar vertex indices (no bar references an isolated vertex,
+    // so every remap entry accessed here is guaranteed to be >= 0).
+    for (auto& b : bars) {
+        b.v1 = remap[b.v1];
+        b.v2 = remap[b.v2];
+    }
 }
 
 // ── Debug image ───────────────────────────────────────────────────────────────

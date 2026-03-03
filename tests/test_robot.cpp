@@ -136,11 +136,14 @@ static void test_remove_bar_patches_actuators()
     r.addActuator(Actuator(1, 1, 0.01));  // references bar 1, neuron 1
 
     // Remove bar 0 → actuator referencing bar 0 is removed, bar_idx for
-    // the remaining actuator should shift from 1 → 0
+    // the remaining actuator should shift from 1 → 0.
+    // Vertex 0 is no longer referenced by any bar after this removal, so
+    // prune it first before checking isValid().
     r.removeBar(0);
     CHECK(r.bars.size()      == 1);
     CHECK(r.actuators.size() == 1);   // actuator for bar 0 removed
     CHECK(r.actuators[0].bar_idx == 0);  // was bar 1, now bar 0
+    r.pruneIsolatedVertices();        // vertex 0 is now isolated; prune it
     CHECK(r.isValid());
 }
 

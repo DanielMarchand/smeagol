@@ -336,6 +336,7 @@ bool Mutator::addRemoveElement(Robot& robot, std::mt19937& rng, const MutatorPar
         if (remove_bar) {
             robot.removeBar(uniformInt(rng, 0,
                 static_cast<int>(robot.bars.size()) - 1));
+            robot.pruneIsolatedVertices();
         } else {
             robot.removeNeuron(uniformInt(rng, 0,
                 static_cast<int>(robot.neurons.size()) - 1));

@@ -111,9 +111,19 @@ public:
 
     /**
      * Returns true iff all cross-references (Bar vertex indices,
-     * Actuator bar/neuron indices) are in-bounds.
+     * Actuator bar/neuron indices) are in-bounds, and every vertex is
+     * the endpoint of at least one bar (exception: a single-vertex,
+     * zero-bar robot is valid).
      */
     [[nodiscard]] bool isValid() const;
+
+    /**
+     * Remove any vertex that is not referenced by any bar.
+     * Exception: if the robot has only one vertex and no bars, it is
+     * left untouched.
+     * Bar and actuator indices are re-patched automatically.
+     */
+    void pruneIsolatedVertices();
 
     // ── YAML I/O ───────────────────────────────────────────────────
 
