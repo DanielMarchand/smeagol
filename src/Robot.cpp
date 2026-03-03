@@ -236,6 +236,11 @@ void Robot::pruneIsolatedVertices()
     if (nv <= 1) return;  // single-vertex robots are always valid as-is
 
     // Mark which vertices are actually referenced by at least one bar.
+    // NOTE: robot.bars holds ALL spring elements — both structural (Bar) and
+    // actuated (Actuator).  Actuators are indexed into robot.bars via bar_idx,
+    // so iterating robot.bars here correctly covers actuated bars too.  This
+    // would need updating if the Bar/Actuator split is ever collapsed (TODO in
+    // Bar.h), but for now it is correct as-is.
     std::vector<bool> referenced(nv, false);
     for (const auto& b : bars) {
         referenced[b.v1] = true;

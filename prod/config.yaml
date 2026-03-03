@@ -41,12 +41,12 @@ mutation:
   perturb_weight_mag:    0.50
 
   bar_length_min: 0.01
-  bar_length_max: 1.00
+  bar_length_max: 0.10
   threshold_min:  0.00
   threshold_max:  2.00
 
   split_vertex_offset: 0.01
   actuator_range_max:  0.01
 
-  new_synapse_weight_min: 0.50
-  new_synapse_weight_max: 1.50
+  new_synapse_weight_min: -1.00
+  new_synapse_weight_max:  1.00

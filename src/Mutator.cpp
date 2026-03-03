@@ -409,9 +409,18 @@ bool Mutator::splitElement(Robot& robot, std::mt19937& rng, const MutatorParams&
 
 // ── attachDetach() ───────────────────────────────────────────────────────────
 //
-// Flips a random bar between structural (no actuator) and actuated.
-//   structural → actuated:  add Actuator(bar, random_neuron, random_range)
-//   actuated   → structural: remove ALL actuators targeting that bar
+// Picks a random spring element — which may currently be a structural Bar or an
+// actuated Bar (Actuator) — and toggles its neural connection:
+//
+//   structural bar  → actuated (Actuator):  add Actuator(bar, random_neuron, random_range)
+//   actuated bar    → structural (Bar):     remove ALL Actuators targeting that bar
+//
+// NOTE: this is the canonical place where Bar ↔ Actuator conversion happens.
+// The candidate pool is robot.bars, which holds ALL spring elements regardless
+// of whether they are currently actuated.  Whether a bar_idx appears in
+// robot.actuators determines its "actuated" status.  This whole toggle dance
+// is a direct consequence of the awkward Bar/Actuator split — see Bar.h for
+// the TODO on collapsing the two classes.
 
 bool Mutator::attachDetach(Robot& robot, std::mt19937& rng, const MutatorParams& params)
 {

@@ -15,6 +15,14 @@
  *
  * Mass is back-calculated as m = rho*(k/E)*L0^2  (equivalent to a circular rod
  * with cross-sectional area A = kL0/E under the paper's material constants).
+ *
+ * @note DESIGN SMELL: In Lipson & Pollack (2000) there is no distinction between
+ * "bars" and "actuators" — every spring element is a bar that may or may not
+ * have a neural connection.  The current code splits this into two classes:
+ * Bar (structural, no neuron) and Actuator (neural connection attached).
+ * Attaching a neuron to a Bar converts it to an Actuator; detaching reverts it.
+ * This two-class split is confusing and error-prone.  TODO: collapse Bar and
+ * Actuator into a single class (e.g. rename Actuator → Bar, remove this class).
  */
 class Bar : public RobotPart
 {

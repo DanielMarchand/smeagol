@@ -5,14 +5,21 @@
 #include <string>
 
 /**
- * @brief Couples one Neuron to one Bar, driving length changes.
+ * @brief A spring element that is driven by a Neuron.
  *
  * During each neural cycle the Simulator checks the linked neuron's activation
- * and scales bar_range to compute a delta applied to Bar::rest_length.
+ * and scales bar_range to compute a delta applied to the bar's rest_length.
  * The change is clamped to ≤ 1 cm per cycle (per the paper).
  *
  *   Δl = neuron.activation * bar_range
- *   Δl = clamp(Δl, -0.01, +0.01)      // 1 cm limit
+ *   Δl = clamp(Δl, 0, 0.01)           // extension-only, 1 cm limit
+ *
+ * @note DESIGN SMELL: In the paper every spring is a "bar" that optionally has
+ * a neural connection.  The current split — Bar (no neuron) vs Actuator (has
+ * neuron) — is a historical artefact.  Attaching a neuron to a Bar converts it
+ * into an Actuator; detaching the last neuron reverts it to a bare Bar.  This
+ * is awkward.  TODO: remove Bar and rename this class to Bar, carrying an
+ * optional neuron_idx field.
  */
 class Actuator : public RobotPart
 {
