@@ -111,7 +111,10 @@ private:
 
     // ── inner loop helpers ─────────────────────────────────────────────────
     void evaluateOne(int idx);              ///< run fitness eval, update fitnesses_[idx]
-    void maybeSaveSnapshot(int eval_num);   ///< write YAML+PNG+MP4 to checkpoints/ on new fitness record
+    void maybeSaveSnapshot(int eval_num);
+
+    /** Write checkpoint_population.yaml atomically with the current eval_count_. */
+    void writePopulationCheckpoint();   ///< write YAML+PNG+MP4 to checkpoints/ on new fitness record
 
     // ── state ──────────────────────────────────────────────────────────────
     EvolverParams           params_;

@@ -310,29 +310,7 @@ void Evolver::maybeSaveSnapshot(int eval_num)
         fs::rename(tmp, params_.run_dir + "checkpoint_latest.yaml");
     }
 
-    // ── Atomic checkpoint_population.yaml (full pop + fitnesses for resume) ──
-    {
-        YAML::Emitter pop_out;
-        pop_out << YAML::BeginMap;
-        pop_out << YAML::Key << "eval_count" << YAML::Value << eval_count_;
-        pop_out << YAML::Key << "population" << YAML::Value << YAML::BeginSeq;
-        for (int i = 0; i < static_cast<int>(population_.size()); ++i) {
-            pop_out << YAML::BeginMap;
-            pop_out << YAML::Key << "path" << YAML::Value
-                    << ("robots/robot_" + std::to_string(population_[i].id) + ".yaml");
-            pop_out << YAML::Key << "fitness" << YAML::Value << fitnesses_[i];
-            pop_out << YAML::EndMap;
-        }
-        pop_out << YAML::EndSeq;
-        pop_out << YAML::EndMap;
-
-        const std::string tmp = params_.run_dir + "checkpoint_population.yaml.tmp";
-        {
-            std::ofstream f(tmp);
-            f << pop_out.c_str() << "\n";
-        }
-        fs::rename(tmp, params_.run_dir + "checkpoint_population.yaml");
-    }
+    writePopulationCheckpoint();
 
     std::cout << "[Evolver] checkpoint saved → " << stem << ".yaml\n";
 
@@ -379,6 +357,30 @@ void Evolver::maybeSaveSnapshot(int eval_num)
         std::cerr << "[Evolver] video MP4 skipped at eval " << eval_num
                   << ": " << e.what() << "\n";
     }
+}
+
+void Evolver::writePopulationCheckpoint()
+{
+    YAML::Emitter pop_out;
+    pop_out << YAML::BeginMap;
+    pop_out << YAML::Key << "eval_count" << YAML::Value << eval_count_;
+    pop_out << YAML::Key << "population" << YAML::Value << YAML::BeginSeq;
+    for (int i = 0; i < static_cast<int>(population_.size()); ++i) {
+        pop_out << YAML::BeginMap;
+        pop_out << YAML::Key << "path" << YAML::Value
+                << ("robots/robot_" + std::to_string(population_[i].id) + ".yaml");
+        pop_out << YAML::Key << "fitness" << YAML::Value << fitnesses_[i];
+        pop_out << YAML::EndMap;
+    }
+    pop_out << YAML::EndSeq;
+    pop_out << YAML::EndMap;
+
+    const std::string tmp = params_.run_dir + "checkpoint_population.yaml.tmp";
+    {
+        std::ofstream f(tmp);
+        f << pop_out.c_str() << "\n";
+    }
+    fs::rename(tmp, params_.run_dir + "checkpoint_population.yaml");
 }
 
 // Main steady-state loop — parallel flight-window design.
@@ -533,6 +535,11 @@ void Evolver::run()
     // ── Final summary ─────────────────────────────────────────────────────
     fitness_log_.flush();
     lineage_log_.flush();
+
+    // Always persist the final population state so resume always starts from
+    // the true end-of-run eval_count, not just the last record snapshot.
+    writePopulationCheckpoint();
+
     const std::string best_path = params_.run_dir + "best_robot_final.yaml";
     population_[best_idx_].toYAML(best_path);
     std::cout << "[Evolver] run complete.  eval=" << eval_count_
