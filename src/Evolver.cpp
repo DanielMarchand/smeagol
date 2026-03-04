@@ -59,7 +59,6 @@ static void signal_handler(int /*sig*/) noexcept
 
 struct EvalJob {
     Robot          child;               ///< Deep copy — worker owns it entirely
-    int            replace_idx;         ///< Replacement slot, chosen by manager at submission
     Robot::ID      parent_id;           ///< For lineage logging
     double         parent_fitness;      ///< Fitness of the selected parent
     int            parent_rank;         ///< 1-based rank of parent in population (1 = best)
@@ -69,7 +68,6 @@ struct EvalJob {
 
 struct EvalResult {
     Robot          child;               ///< Moved back for archiving and logging
-    int            replace_idx;
     double         fitness;
     Robot::ID      parent_id;
     double         parent_fitness;
@@ -77,6 +75,26 @@ struct EvalResult {
     double         parent_sel_prob;
     MutationRecord mutation_record;
 };
+
+// ── SelectionParams YAML I/O ─────────────────────────────────────────────────
+
+SelectionParams SelectionParams::fromYAML(const YAML::Node& n)
+{
+    SelectionParams p;
+    if (n["scheme"])      p.scheme      = n["scheme"].as<std::string>();
+    if (n["pressure"])    p.pressure    = n["pressure"].as<double>();
+    if (n["replacement"]) p.replacement = n["replacement"].as<std::string>();
+    if (n["max_rerolls"]) p.max_rerolls = n["max_rerolls"].as<int>();
+    return p;
+}
+
+void SelectionParams::toYAML(YAML::Emitter& out) const
+{
+    out << YAML::Key << "scheme"      << YAML::Value << scheme;
+    out << YAML::Key << "pressure"    << YAML::Value << pressure;
+    out << YAML::Key << "replacement" << YAML::Value << replacement;
+    out << YAML::Key << "max_rerolls" << YAML::Value << max_rerolls;
+}
 
 // ── EvolverParams YAML I/O ────────────────────────────────────────────────────
 
@@ -101,6 +119,9 @@ EvolverParams EvolverParams::fromYAML(const std::string& path)
 
     if (const auto& m = node["mutation"])
         p.mutation = MutatorParams::fromYAML(m);
+
+    if (const auto& s = node["selection"])
+        p.selection = SelectionParams::fromYAML(s);
 
     if (node["resume"]) p.resume = node["resume"].as<bool>();
     if (node["record_min_improvement"])
@@ -138,6 +159,9 @@ void EvolverParams::toYAML(const std::string& path) const
     out << YAML::Key << "mutation"        << YAML::Value << YAML::BeginMap;
     mutation.toYAML(out);
     out << YAML::EndMap;  // mutation
+    out << YAML::Key << "selection"       << YAML::Value << YAML::BeginMap;
+    selection.toYAML(out);
+    out << YAML::EndMap;  // selection
     out << YAML::Key << "resume"                   << YAML::Value << resume;
     out << YAML::Key << "record_min_improvement"    << YAML::Value << record_min_improvement;
     out << YAML::Key << "report_interval"           << YAML::Value << report_interval;
@@ -273,30 +297,118 @@ bool Evolver::wasInterrupted() const
 
 // ── Evolutionary Loop ────────────────────────────────────────────────────────
 
-// Fitness-proportionate roulette-wheel selection.
-// Falls back to uniform random when all fitnesses are 0.
+// ── Parent selection ─────────────────────────────────────────────────────────
+//
+// Three schemes, all controlled by params_.selection:
+//
+//  proportionate — weight_i = fitness_i ^ pressure
+//      pressure=1.0  → classic Lipson & Pollack linear roulette.
+//      pressure=2.0  → squares the fitness gaps (quadratic amplification).
+//      pressure=0.0  → uniform random (all equal weight).
+//
+//  tournament     — select `pressure` (cast to int) candidates at random;
+//      return the fittest.  pressure=2 = mild; pressure=20 = very aggressive.
+//      Completely insensitive to fitness scale (unlike proportionate).
+//
+//  rank           — sort population by fitness, assign weights by rank.
+//      weight_i = 2*rank_i / (N*(N+1))  scaled by η_max (= pressure ∈ [1,2]):
+//        weight_i = (2 - pressure)/N  +  (2*(pressure-1)*rank_i) / (N*(N-1))
+//      rank 1 = worst, rank N = best.
+//      pressure=1.0 → all equal weight (uniform).
+//      pressure=2.0 → maximum linear rank pressure; best gets 2/N share.
+//      Also completely insensitive to fitness scale.
+
 int Evolver::selectParent() const
 {
     const int n = static_cast<int>(population_.size());
-    double total = 0.0;
-    for (double f : fitnesses_) total += f;
+    const SelectionParams& sp = params_.selection;
 
-    if (total <= 0.0)
-        return std::uniform_int_distribution<int>(0, n - 1)(rng_);
-
-    double r = std::uniform_real_distribution<double>(0.0, total)(rng_);
-    double sum = 0.0;
-    for (int i = 0; i < n; ++i) {
-        sum += fitnesses_[i];
-        if (sum >= r) return i;
+    // ── proportionate ─────────────────────────────────────────────────────
+    if (sp.scheme == "proportionate") {
+        if (sp.pressure == 0.0) {
+            // degenerate: uniform random
+            return std::uniform_int_distribution<int>(0, n - 1)(rng_);
+        }
+        // Compute weights = fitness^pressure; fall back to uniform if all 0.
+        std::vector<double> w(n);
+        double total = 0.0;
+        for (int i = 0; i < n; ++i) {
+            w[i] = (fitnesses_[i] > 0.0)
+                   ? std::pow(fitnesses_[i], sp.pressure)
+                   : 0.0;
+            total += w[i];
+        }
+        if (total <= 0.0)
+            return std::uniform_int_distribution<int>(0, n - 1)(rng_);
+        double r = std::uniform_real_distribution<double>(0.0, total)(rng_);
+        double acc = 0.0;
+        for (int i = 0; i < n; ++i) {
+            acc += w[i];
+            if (acc >= r) return i;
+        }
+        return n - 1;
     }
-    return n - 1;  // rounding safety fallback
+
+    // ── tournament ────────────────────────────────────────────────────────
+    if (sp.scheme == "tournament") {
+        const int k = std::max(2, static_cast<int>(sp.pressure));
+        auto pick = std::uniform_int_distribution<int>(0, n - 1);
+        int best = pick(rng_);
+        for (int t = 1; t < k; ++t) {
+            int challenger = pick(rng_);
+            if (fitnesses_[challenger] > fitnesses_[best])
+                best = challenger;
+        }
+        return best;
+    }
+
+    // ── rank ──────────────────────────────────────────────────────────────
+    // (also the fallback for any unrecognised scheme string)
+    {
+        const double eta = std::clamp(sp.pressure, 1.0, 2.0);
+        // Sort indices worst→best (rank 0=worst, rank n-1=best).
+        std::vector<int> order(n);
+        std::iota(order.begin(), order.end(), 0);
+        std::sort(order.begin(), order.end(),
+                  [&](int a, int b){ return fitnesses_[a] < fitnesses_[b]; });
+
+        // Linear rank weight: w(rank) = (2-eta)/n + 2*(eta-1)*rank/(n*(n-1))
+        // rank ∈ {0,1,...,n-1}.
+        std::vector<double> w(n);
+        double total = 0.0;
+        for (int r = 0; r < n; ++r) {
+            w[order[r]] = (2.0 - eta) / n
+                        + 2.0 * (eta - 1.0) * r / (n * std::max(n - 1, 1));
+            total += w[order[r]];
+        }
+        double rnd = std::uniform_real_distribution<double>(0.0, total)(rng_);
+        double acc = 0.0;
+        for (int i = 0; i < n; ++i) {
+            acc += w[i];
+            if (acc >= rnd) return i;
+        }
+        return n - 1;
+    }
 }
 
-// Uniform-random replacement — any slot, including the parent's.
+// Replacement: choose which population slot the child overwrites.
+// uniform_random — any slot (can overwrite excellent robots).
+// worst          — overwrites the current weakest slot; ties broken uniformly
+//                  at random so multiple concurrent workers don't all target
+//                  the same index when fitnesses are equal.
 int Evolver::selectReplacement() const
 {
     const int n = static_cast<int>(population_.size());
+    if (params_.selection.replacement == "worst") {
+        double min_f = *std::min_element(fitnesses_.begin(), fitnesses_.end());
+        std::vector<int> candidates;
+        candidates.reserve(n);
+        for (int i = 0; i < n; ++i)
+            if (fitnesses_[i] == min_f) candidates.push_back(i);
+        return candidates[
+            std::uniform_int_distribution<int>(0, (int)candidates.size() - 1)(rng_)];
+    }
+    // default: uniform_random
     return std::uniform_int_distribution<int>(0, n - 1)(rng_);
 }
 
@@ -374,7 +486,9 @@ void Evolver::printSelectionReport(double mean)
     }
     const double stddev = std::sqrt(sum2 / n);
 
-    // ── Selection pressure: fraction of roulette share held by top 10% ───
+    // ── Selection pressure metric: fraction of effective roulette share
+    //    held by top 10% — computed from raw fitness regardless of scheme,
+    //    so it's a consistent observable even for tournament/rank runs.
     double total = 0.0;
     for (double f : fitnesses_) total += f;
     std::vector<double> sorted = fitnesses_;
@@ -384,6 +498,18 @@ void Evolver::printSelectionReport(double mean)
     for (int i = 0; i < top10_n; ++i) top10_sum += sorted[i];
     const double top10_share = (total > 0.0) ? (top10_sum / total * 100.0) : 0.0;
 
+    // ── Describe active selection config ──────────────────────────────────
+    const SelectionParams& sp = params_.selection;
+    std::ostringstream sel_desc;
+    sel_desc << sp.scheme;
+    if (sp.scheme == "proportionate")
+        sel_desc << "(pressure=" << sp.pressure << ")";
+    else if (sp.scheme == "tournament")
+        sel_desc << "(size=" << static_cast<int>(sp.pressure) << ")";
+    else
+        sel_desc << "(eta=" << sp.pressure << ")";
+    sel_desc << "  replacement=" << sp.replacement;
+
     // ── Mutation operator counts over last report_interval ────────────────
     const int total_ops = mc_perturb_ + mc_add_remove_ + mc_split_
                         + mc_attach_  + mc_rewire_;
@@ -392,8 +518,8 @@ void Evolver::printSelectionReport(double mean)
               << "  pop: min=" << fmin << "m  max=" << fmax << "m"
               << "  stddev=" << stddev << "m\n"
               << std::setprecision(1)
-              << "  selection: top-10% hold " << top10_share
-              << "% of roulette share  (pop_size=" << n << ")\n"
+              << "  selection: " << sel_desc.str()
+              << "  top-10% hold " << top10_share << "% of raw-fitness share\n"
               << "  mutations last " << params_.report_interval << " evals"
               << " (total_ops=" << total_ops << ")"
               << ":  perturb=" << mc_perturb_
@@ -517,14 +643,14 @@ void Evolver::run()
     // Captures fitness params by value so workers need no shared data.
     auto eval_worker = [fitness_params = params_.fitness](EvalJob job) -> EvalResult {
         double f = FitnessEvaluator(fitness_params).evaluate(job.child);
-        return EvalResult{ std::move(job.child), job.replace_idx, f,
+        return EvalResult{ std::move(job.child), f,
                            job.parent_id, job.parent_fitness,
                            job.parent_rank, job.parent_sel_prob,
                            job.mutation_record };
     };
 
     // ── Helpers ───────────────────────────────────────────────────────────
-    constexpr int kMaxRerolls = 100;
+    const int kMaxRerolls = params_.selection.max_rerolls;
 
     std::deque<std::future<EvalResult>> in_flight;
 
@@ -570,7 +696,7 @@ void Evolver::run()
             mrec = Mutator::mutateRecord(child, rng_, params_.mutation);
         }
 
-        EvalJob job{ std::move(child), selectReplacement(), pid,
+        EvalJob job{ std::move(child), pid,
                      pfitness, parent_rank, parent_sel_prob, mrec };
         in_flight.push_back(
             std::async(std::launch::async, eval_worker, std::move(job)));
@@ -581,7 +707,10 @@ void Evolver::run()
         EvalResult res = in_flight.front().get();
         in_flight.pop_front();
 
-        const int       ridx              = res.replace_idx;
+        // Choose replacement slot now, against the current population state,
+        // not at submission time (which caused all concurrent workers to target
+        // the same slot when using replacement=worst with tied fitnesses).
+        const int       ridx              = selectReplacement();
         const Robot::ID replaced_id       = population_[ridx].id;
         const double    replaced_fitness  = fitnesses_[ridx];
 

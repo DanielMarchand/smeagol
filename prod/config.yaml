@@ -18,6 +18,53 @@ record_min_improvement: 0.01  # new record must beat old by at least this many m
 report_interval: 50
 periodic_video_interval: 50
 
+# ── Selection ─────────────────────────────────────────────────────────────────
+#
+# HOW PARENT SELECTION WORKS
+# Each generation: pick a parent, clone+mutate it, evaluate the child, write it
+# back into the population. `scheme` + `pressure` together control how the
+# parent is chosen. There are three options:
+#
+#   scheme: proportionate   Each robot's probability of being chosen is
+#                           proportional to fitness^pressure.
+#                           pressure=1.0  →  linear roulette (original L&P)
+#                           pressure=2.0  →  quadratic (wider gaps between good
+#                                            and bad robots)
+#                           Weakness: if all fitness values are clustered (e.g.
+#                           0.10–0.12 m) pressure has almost no effect.
+#
+#   scheme: tournament      Randomly grab `pressure` robots, the fittest one
+#                           wins and becomes the parent. Scale-independent.
+#                           pressure=2   →  coin flip between two random robots
+#                           pressure=5   →  best of 5  (winner ≈ top 30%)
+#                           pressure=20  →  best of 20 (winner ≈ top 5%)
+#
+#   scheme: rank            Sort the whole population by fitness, then assign
+#                           selection probability by rank (not by raw score).
+#                           pressure = η_max in [1.0, 2.0]; at 2.0 the best
+#                           robot gets 2× the average selection chance, worst
+#                           gets 0. Scale-independent like tournament but capped.
+#
+# HOW REPLACEMENT WORKS  (independent of scheme — always applies)
+# After the child is evaluated it overwrites one slot in the population.
+#
+#   replacement: uniform_random   Pick any slot at random, including the
+#                                 current best — good robots can be evicted.
+#
+#   replacement: worst            Always overwrite the weakest robot. The
+#                                 minimum fitness can only go up over time.
+#
+# MAX REROLLS
+# When a mutation produces a robot with degenerate geometry (e.g. zero-length
+# bars) the evolver retries the mutation. max_rerolls is the retry limit.
+# After that many failures it gives up and uses the parent unchanged.
+#
+selection:
+  scheme:      tournament
+  pressure:    20           # best of 20 random competitors
+  replacement: worst        # always evict the weakest individual
+  max_rerolls: 100
+
 fitness:
   cycles:          12
   #steps_per_cycle: 5000

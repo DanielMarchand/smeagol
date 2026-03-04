@@ -310,15 +310,144 @@ This confirms the fitness wrapper returns a positive, monotonically-growing sign
 
 ---
 
-## Project status
+## Evolutionary Algorithm
 
-| Phase | Description | Status |
+The steady-state loop lives in `src/Evolver.cpp` and is driven by `EvolverParams` loaded from a YAML config file.
+
+### Loop structure
+
+Each evaluation:
+
+1. **Select a parent** from the population (fitness-weighted, see below).
+2. **Clone + mutate** the parent.
+3. **Evaluate fitness** of the child (re-simulate from scratch).
+4. **Select a replacement slot** in the population (uniform or worst, see below).
+5. **Overwrite** that slot with the child and archive the child as `robots/robot_<id>.yaml`.
+
+Multiple children are evaluated in parallel using a rolling flight-window of `W = hardware_threads - 1` concurrent futures. The manager always keeps the window full.
+
+---
+
+### Parent selection
+
+Three schemes are available, all controlled by a single `pressure` knob:
+
+#### `proportionate` (classical roulette wheel)
+
+Each individual's probability of being chosen as a parent equals:
+
+$$P_i = \frac{f_i^p}{\sum_j f_j^p}$$
+
+where $f_i$ is its fitness and $p$ is `pressure`.
+
+| `pressure` | effect |
+|---|---|
+| `1.0` | linear roulette — original Lipson & Pollack. An individual twice as fit is twice as likely to be chosen. |
+| `2.0` | quadratic — squares the fitness gaps. An individual twice as fit is **four times** as likely. |
+| `4.0` | aggressive — fourth-power amplification. |
+| `0.0` | degenerate uniform random — all individuals equally likely. |
+
+**Weakness**: completely dependent on the absolute scale of fitness values. If all robots score between `0.1 m` and `0.12 m`, the ratios $f_i^p / \sum f_j^p$ are nearly identical no matter how large $p$ is — pressure is effectively zero once the population starts converging.
+
+#### `tournament`
+
+Sample `pressure` individuals uniformly at random (without replacement) and return the one with the highest fitness. `pressure` is cast to an integer ≥ 2.
+
+| `pressure` | effect |
+|---|---|
+| `2` | weak — 50% chance of picking the better of two random individuals |
+| `5` | moderate — best of 5 is almost always in the top 30% |
+| `10` | strong — best of 10 is almost always in the top 10% |
+| `20` | very aggressive — best of 20 is almost certain to be in the top few % |
+
+**Strength**: completely insensitive to fitness scale. Whether robots score `0.001 m` or `100 m`, the selective advantage is the same. Strongly recommended over `proportionate` once the population has non-trivial structure.
+
+#### `rank` (linear rank selection)
+
+Sort the population by fitness (rank 1 = worst, rank $N$ = best). Assign weights by rank, not raw fitness:
+
+$$P_i = \frac{2 - \eta_{\max}}{N} + \frac{2(\eta_{\max} - 1) \cdot \text{rank}_i}{N(N-1)}$$
+
+where $\eta_{\max}$ is `pressure` ∈ [1.0, 2.0].
+
+| `pressure` | effect |
+|---|---|
+| `1.0` | uniform — all individuals equally likely |
+| `1.5` | moderate — best individual gets 3× the average selection rate |
+| `2.0` | maximum — best gets exactly $2/N$ share; worst gets $0$ |
+
+**Strength**: like tournament, insensitive to fitness scale. Unlike tournament, the probability distribution is smooth and deterministic given the fitness ranking. **Weakness**: caps at `pressure=2.0`; cannot be made more aggressive than that — use tournament if you need stronger pressure.
+
+---
+
+### Replacement
+
+Controls which population slot the child overwrites.
+
+#### `uniform_random` (default, Lipson & Pollack original)
+
+The replacement slot is chosen uniformly at random over all `population_size` slots, including the current best. Over time this means any robot — including excellent ones — can be evicted. In combination with weak selection pressure, the population effectively random-walks unless the fitness landscape is very favourable.
+
+#### `worst`
+
+Always overwrites the slot with the *lowest* current fitness. The minimum fitness in the population is therefore **monotonically non-decreasing** — the worst individual can only get better or stay the same. Combined with strong selection pressure (`tournament` with a large size, or `rank` at `pressure=2.0`), this is the most aggressive setting available.
+
+---
+
+### Mutation operators
+
+Five operators apply independently each eval, each with its own firing probability:
+
+| Operator | `p_*` default | What it does |
 |---|---|---|
-| 1 | Data structures, YAML serialisation | ✅ |
-| 2 | Rendering (SceneRenderer, SnapshotRenderer, VideoRenderer) | ✅ |
-| 3.1–3.3 | Energy function, quasi-static relaxation, floor + friction | ✅ |
-| 3.4–3.5 | Neural network tick, actuator coupling | ✅ |
-| 3.6 | Fitness wrapper (`FitnessEvaluator`, `evaluate_fitness` tool) | ✅ |
-| 4 | Genetic algorithm / evolver | planned |
-| 5 | Logging, fitness CSV, phylogenetic tree, automated video | planned |
+| `perturbElement` | 0.10 | nudge a random bar's rest length by ±`perturb_bar_frac`; or nudge a random neuron's threshold or synapse weight |
+| `addRemoveElement` | 0.01 | add or remove one bar (Strategy A: new vertex + bar; Strategy B: edge between two existing vertices) or one neuron |
+| `splitElement` | 0.03 | split a random vertex into two (connected by a tiny bar) or bisect a bar at its midpoint |
+| `attachDetach` | 0.03 | flip a random bar between structural and actuated (or back) |
+| `rewireNeuron` | 0.03 | reassign a random actuator's bar target or neural source |
+
+If **none** of the five operators fires naturally in a given step, one is forced at random to guarantee the child differs from its parent. High `forced` counts in the report indicate most parents are too structurally simple for the operators to find anything to act on — a normal early-run condition.
+
+`max_rerolls` (default 100) is the retry limit when a mutated child fails `robot.isValid()`. On the final retry the evolver accepts an unmutated clone instead.
+
+---
+
+### Config reference
+
+Full `selection:` block with all defaults:
+
+```yaml
+selection:
+  scheme:      proportionate  # proportionate | tournament | rank
+  pressure:    1.0            # see per-scheme table above
+  replacement: uniform_random # uniform_random | worst
+  max_rerolls: 100
+```
+
+Recommended starting point for fast convergence early in a run:
+
+```yaml
+selection:
+  scheme:      tournament
+  pressure:    5       # best of 5 random competitors
+  replacement: worst   # monotonically improve worst-case
+  max_rerolls: 100
+```
+
+---
+
+### Population report (stdout every `report_interval` evals)
+
+```
+eval=200  best=0.0412m  mean=0.0031m
+  pop: min=0.0000m  max=0.0412m  stddev=0.0087m
+  selection: tournament(size=5)  replacement=worst  top-10% hold 67.2% of raw-fitness share
+  mutations last 200 evals (total_ops=184):  perturb=166  add/remove=12  split=14  attach=13  rewire=11  forced=3
+```
+
+- **`top-10% hold X% of raw-fitness share`** — computed from raw fitness values regardless of the active scheme. Shows how concentrated fitness mass is in the top 10%. Early runs will be near 100% (a few robots have all the fitness); a mature diverse population will be closer to 30–50%.
+- **`total_ops`** — count of *stochastic* operator firings this window (not counting `forced`).
+- **`forced`** — count of fallback forced mutations. High early → robots are mostly empty structure. Should drop as the population gains complexity.
+
+
 

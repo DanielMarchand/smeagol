@@ -20,6 +20,57 @@ struct VideoParams
     bool verbose        = false;    ///< if false (default) suppress raylib INFO and ffmpeg output
 };
 
+// ── SelectionParams ───────────────────────────────────────────────────────────
+
+/**
+ * @brief All knobs that control how parents and replacement slots are chosen.
+ *
+ * Three parent-selection schemes are available.  Each uses the `pressure`
+ * field differently — this is intentional; one float is simpler than three
+ * scheme-specific fields:
+ *
+ * | scheme         | what `pressure` means                                   | pressure range |
+ * |----------------|---------------------------------------------------------|----------------|
+ * | proportionate  | exponent applied to raw fitness before weighting:       | ≥ 0            |
+ * |                | weight_i = fitness_i ^ pressure.  1.0 = linear roulette|                |
+ * |                | (current behaviour).  2.0 = squares the gaps;  4.0 =   |                |
+ * |                | fourth-power.  0.0 = uniform random (all equal weight). |                |
+ * | tournament     | tournament size (cast to int ≥ 2):                      | 2 .. pop_size  |
+ * |                | sample `pressure` individuals at random and return the  |                |
+ * |                | fittest.  2 = mild pressure, 20 = aggressive.           |                |
+ * | rank           | η_max in linear rank selection ∈ [1.0, 2.0]:            | 1.0 .. 2.0     |
+ * |                | the best-ranked individual gets η_max/(N/2) times the   |                |
+ * |                | average weight; 2.0 = maximum linear pressure; 1.0 =   |                |
+ * |                | uniform (all equal weight).  Completely insensitive to  |                |
+ * |                | the absolute scale of fitness values.                   |                |
+ *
+ * Replacement controls which population slot the child overwrites:
+ *
+ * | replacement    | behaviour                                               |
+ * |----------------|---------------------------------------------------------|
+ * | uniform_random | any slot chosen uniformly at random (Lipson & Pollack  |
+ * |                | 2000 original).  Can overwrite good robots.             |
+ * | worst          | always overwrites the current worst-fitness slot.       |
+ * |                | Monotonically improves worst-case fitness; combined with|
+ * |                | strong selection pressure this is the most aggressive   |
+ * |                | setting.                                                |
+ *
+ * `max_rerolls` caps the number of times a mutated child is thrown away and
+ * re-mutated because it failed `robot.isValid()`.  On the 100th failure the
+ * evolver falls back to an unmutated clone (guaranteed valid).  Rare in
+ * practice; only relevant during rapid topology changes early in a run.
+ */
+struct SelectionParams
+{
+    std::string scheme       = "proportionate"; ///< proportionate | tournament | rank
+    double      pressure     = 1.0;             ///< scheme-specific pressure knob (see table above)
+    std::string replacement  = "uniform_random";///< uniform_random | worst
+    int         max_rerolls  = 100;             ///< mutation retry limit before accepting a clone
+
+    static SelectionParams fromYAML(const YAML::Node& node);
+    void toYAML(YAML::Emitter& out) const;
+};
+
 /**
  * @brief Configuration for a single evolutionary run.
  *
@@ -35,6 +86,11 @@ struct VideoParams
  * run_dir: ""               # overrides output_base_dir when non-empty
  * report_interval: 200      # print fitness digest to stdout every N evals
  * periodic_video_interval: 200  # save best-robot video every N evals (0 = off)
+ * selection:
+ *   scheme:      proportionate  # proportionate | tournament | rank
+ *   pressure:    1.0            # scheme-specific knob; see SelectionParams docs
+ *   replacement: uniform_random # uniform_random | worst
+ *   max_rerolls: 100
  * fitness:
  *   cycles: 12
  *   steps_per_cycle: 5000
@@ -56,7 +112,8 @@ struct EvolverParams
     std::string output_base_dir  = "runs/";   ///< timestamped run dirs are created here
     std::string run_dir          = "";        ///< overrides output_base_dir when non-empty
     bool        resume           = false;     ///< if true, restore from checkpoint_population.yaml
-    VideoParams video;                        ///< video rendering knobs for record snapshots
+    VideoParams     video;                    ///< video rendering knobs for record snapshots
+    SelectionParams selection;                ///< parent selection + replacement scheme
     double      record_min_improvement  = 0.01; ///< new best must exceed old by at least this [m]
     int         report_interval         = 200;  ///< print fitness digest to stdout every N evals
     int         periodic_video_interval = 200;  ///< save best-robot video/YAML every N evals (0=off)
