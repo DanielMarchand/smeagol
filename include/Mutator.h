@@ -2,6 +2,7 @@
 
 #include "Robot.h"
 #include <random>
+#include <string>
 #include <yaml-cpp/yaml.h>
 
 // ── MutatorParams ─────────────────────────────────────────────────────────────
@@ -54,6 +55,29 @@ struct MutatorParams
     void toYAML(YAML::Emitter& out) const;
 };
 
+// ── MutationRecord ────────────────────────────────────────────────────────────
+
+/**
+ * @brief Records which mutation operators fired during a single mutate() call.
+ *
+ * Returned by Mutator::mutateRecord() so callers can log/audit what happened.
+ * The five bool flags correspond to the five operators; was_forced is true when
+ * none fired stochastically and one was selected at random to guarantee progress.
+ */
+struct MutationRecord
+{
+    bool perturb    = false;  ///< perturbElement fired
+    bool add_remove = false;  ///< addRemoveElement fired
+    bool split      = false;  ///< splitElement fired
+    bool attach     = false;  ///< attachDetach fired
+    bool rewire     = false;  ///< rewireNeuron fired
+    bool was_forced = false;  ///< true if no op fired naturally, one was forced
+
+    /// Human-readable comma-separated list of operators that fired,
+    /// e.g. "perturb, split" or "add_remove [forced]".
+    std::string describe() const;
+};
+
 // ── Mutator ───────────────────────────────────────────────────────────────────
 
 /**
@@ -84,6 +108,13 @@ public:
      */
     static void mutate(Robot& robot, std::mt19937& rng,
                        const MutatorParams& params = MutatorParams{});
+
+    /**
+     * Same as mutate() but also returns a MutationRecord describing which
+     * operators fired.  Used by the Evolver to write per-robot log files.
+     */
+    static MutationRecord mutateRecord(Robot& robot, std::mt19937& rng,
+                                       const MutatorParams& params = MutatorParams{});
 
     // ── Individual operators (public for targeted use in tests / demos) ───
 

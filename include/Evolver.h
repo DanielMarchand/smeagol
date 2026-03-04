@@ -17,6 +17,7 @@ struct VideoParams
     bool enabled        = true;     ///< set false to skip PNG+MP4 (e.g. in unit tests)
     int fps             = 30;       ///< output framerate passed to ffmpeg
     int steps_per_frame = 2000000;  ///< physics steps between captured frames
+    bool verbose        = false;    ///< if false (default) suppress raylib INFO and ffmpeg output
 };
 
 /**
@@ -29,15 +30,17 @@ struct VideoParams
  * @code
  * population_size: 200
  * max_evaluations: 100000
- * seed: 42               # 0 = seed from std::random_device
- * output_base_dir: runs/ # timestamped run dirs land here
- * run_dir: ""            # overrides output_base_dir when non-empty
+ * seed: 42                  # 0 = seed from std::random_device
+ * output_base_dir: runs/    # timestamped run dirs land here
+ * run_dir: ""               # overrides output_base_dir when non-empty
+ * report_interval: 200      # print fitness digest to stdout every N evals
+ * periodic_video_interval: 200  # save best-robot video every N evals (0 = off)
  * fitness:
  *   cycles: 12
  *   steps_per_cycle: 5000
  *   step_size: 1.0e-7
  *   wind: 0.0
- *   mu_static: 0.5       # static Coulomb friction coefficient
+ *   mu_static: 0.5           # static Coulomb friction coefficient
  * video:
  *   fps:             30
  *   steps_per_frame: 2000000
@@ -54,7 +57,9 @@ struct EvolverParams
     std::string run_dir          = "";        ///< overrides output_base_dir when non-empty
     bool        resume           = false;     ///< if true, restore from checkpoint_population.yaml
     VideoParams video;                        ///< video rendering knobs for record snapshots
-    double      record_min_improvement = 0.01; ///< new best must exceed old by at least this [m]
+    double      record_min_improvement  = 0.01; ///< new best must exceed old by at least this [m]
+    int         report_interval         = 200;  ///< print fitness digest to stdout every N evals
+    int         periodic_video_interval = 200;  ///< save best-robot video/YAML every N evals (0=off)
 
     /**
      * Load from a YAML file.  Any field not present in the file keeps its
@@ -111,10 +116,12 @@ private:
 
     // ── inner loop helpers ─────────────────────────────────────────────────
     void evaluateOne(int idx);              ///< run fitness eval, update fitnesses_[idx]
-    void maybeSaveSnapshot(int eval_num);
+    void maybeSaveSnapshot(int eval_num);   ///< write YAML+PNG+MP4 to checkpoints/ on new fitness record
+    void maybeSavePeriodicVideo(int eval_num); ///< write checkpoints/periodic_eval_N.{yaml,mp4} every periodic_video_interval evals
+    void printSelectionReport(double mean); ///< print population/mutation stats to stdout
 
     /** Write checkpoint_population.yaml atomically with the current eval_count_. */
-    void writePopulationCheckpoint();   ///< write YAML+PNG+MP4 to checkpoints/ on new fitness record
+    void writePopulationCheckpoint();
 
     // ── state ──────────────────────────────────────────────────────────────
     EvolverParams           params_;
@@ -127,4 +134,12 @@ private:
     std::ofstream           fitness_log_;    ///< eval,generation,best_fitness,... per row
     std::ofstream           lineage_log_;    ///< eval,child_id,parent_id,... per row
     double                  record_fitness_ = -1.0; ///< all-time best; snapshot fires on improvement
+
+    // ── mutation operator counters (reset every report_interval) ──────────
+    int mc_perturb_    = 0;
+    int mc_add_remove_ = 0;
+    int mc_split_      = 0;
+    int mc_attach_     = 0;
+    int mc_rewire_     = 0;
+    int mc_forced_     = 0;
 };

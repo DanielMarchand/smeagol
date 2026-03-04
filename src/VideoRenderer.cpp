@@ -156,11 +156,14 @@ bool VideoRenderer::finish(const std::string& output_path)
         << " -framerate " << fps_
         << " -i \"" << (frame_dir_ / "frame_%04d.png").string() << "\""
         << " -c:v libx264 -pix_fmt yuv420p"
-        << " \"" << out.string() << "\""
-        << " 2>&1";
+        << " \"" << out.string() << "\"";
+    if (!verbose_)
+        cmd << " -loglevel error";  // suppress ffmpeg progress/info spam
+    cmd << " 2>&1";
 
-    std::cout << "VideoRenderer: compiling " << frame_count_
-              << " frames → " << out << "\n";
+    if (verbose_)
+        std::cout << "VideoRenderer: compiling " << frame_count_
+                  << " frames → " << out << "\n";
 
     const int rc = std::system(cmd.str().c_str());
     if (rc != 0)
@@ -172,6 +175,7 @@ bool VideoRenderer::finish(const std::string& output_path)
 
     // Clean up temp frames on success
     fs::remove_all(frame_dir_);
-    std::cout << "VideoRenderer: written " << out << "\n";
+    if (verbose_)
+        std::cout << "VideoRenderer: written " << out << "\n";
     return true;
 }

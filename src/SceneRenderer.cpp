@@ -27,6 +27,10 @@ void SceneRenderer::openWindow(bool hidden)
 {
     if (m_open) return;
 
+    // Suppress raylib INFO/DEBUG trace unless verbose mode is on.
+    // LOG_WARNING keeps actual warnings and errors visible.
+    SetTraceLogLevel(verbose_ ? LOG_ALL : LOG_WARNING);
+
     unsigned int flags = FLAG_MSAA_4X_HINT;
     if (hidden) flags |= FLAG_WINDOW_HIDDEN;
 

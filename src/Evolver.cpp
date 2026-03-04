@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <ctime>
 #include <deque>
@@ -24,6 +25,7 @@
 #include <future>
 #include <iomanip>
 #include <iostream>
+#include <numeric>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -56,16 +58,24 @@ static void signal_handler(int /*sig*/) noexcept
 // ── Job/result packets for parallel evaluation ────────────────────────────────
 
 struct EvalJob {
-    Robot        child;        ///< Deep copy — worker owns it entirely
-    int          replace_idx;  ///< Replacement slot, chosen by manager at submission
-    Robot::ID    parent_id;    ///< For lineage logging
+    Robot          child;               ///< Deep copy — worker owns it entirely
+    int            replace_idx;         ///< Replacement slot, chosen by manager at submission
+    Robot::ID      parent_id;           ///< For lineage logging
+    double         parent_fitness;      ///< Fitness of the selected parent
+    int            parent_rank;         ///< 1-based rank of parent in population (1 = best)
+    double         parent_sel_prob;     ///< Roulette selection probability share [0,1]
+    MutationRecord mutation_record;     ///< Which operators fired
 };
 
 struct EvalResult {
-    Robot        child;        ///< Moved back for archiving and logging
-    int          replace_idx;
-    double       fitness;
-    Robot::ID    parent_id;
+    Robot          child;               ///< Moved back for archiving and logging
+    int            replace_idx;
+    double         fitness;
+    Robot::ID      parent_id;
+    double         parent_fitness;
+    int            parent_rank;
+    double         parent_sel_prob;
+    MutationRecord mutation_record;
 };
 
 // ── EvolverParams YAML I/O ────────────────────────────────────────────────────
@@ -95,10 +105,15 @@ EvolverParams EvolverParams::fromYAML(const std::string& path)
     if (node["resume"]) p.resume = node["resume"].as<bool>();
     if (node["record_min_improvement"])
         p.record_min_improvement = node["record_min_improvement"].as<double>();
+    if (node["report_interval"])
+        p.report_interval = node["report_interval"].as<int>();
+    if (node["periodic_video_interval"])
+        p.periodic_video_interval = node["periodic_video_interval"].as<int>();
 
     if (const auto& v = node["video"]) {
         if (v["fps"])             p.video.fps             = v["fps"].as<int>();
         if (v["steps_per_frame"]) p.video.steps_per_frame = v["steps_per_frame"].as<int>();
+        if (v["verbose"])         p.video.verbose         = v["verbose"].as<bool>();
     }
 
     return p;
@@ -123,11 +138,14 @@ void EvolverParams::toYAML(const std::string& path) const
     out << YAML::Key << "mutation"        << YAML::Value << YAML::BeginMap;
     mutation.toYAML(out);
     out << YAML::EndMap;  // mutation
-    out << YAML::Key << "resume"                << YAML::Value << resume;
-    out << YAML::Key << "record_min_improvement" << YAML::Value << record_min_improvement;
+    out << YAML::Key << "resume"                   << YAML::Value << resume;
+    out << YAML::Key << "record_min_improvement"    << YAML::Value << record_min_improvement;
+    out << YAML::Key << "report_interval"           << YAML::Value << report_interval;
+    out << YAML::Key << "periodic_video_interval"   << YAML::Value << periodic_video_interval;
     out << YAML::Key << "video"           << YAML::Value << YAML::BeginMap;
     out << YAML::Key << "fps"             << YAML::Value << video.fps;
     out << YAML::Key << "steps_per_frame" << YAML::Value << video.steps_per_frame;
+    out << YAML::Key << "verbose"         << YAML::Value << video.verbose;
     out << YAML::EndMap;  // video
     out << YAML::EndMap;  // root
 
@@ -291,6 +309,101 @@ void Evolver::evaluateOne(int idx)
         best_idx_ = idx;
 }
 
+// Save a periodic best-robot video every params_.periodic_video_interval evals.
+// Always fires regardless of whether a new fitness record was set.
+void Evolver::maybeSavePeriodicVideo(int eval_num)
+{
+    const int interval = params_.periodic_video_interval;
+    if (interval <= 0 || eval_num % interval != 0) return;
+    if (!params_.video.enabled) return;
+
+    const std::string stem = params_.run_dir + "checkpoints/periodic_eval_"
+                           + std::to_string(eval_num);
+
+    // YAML snapshot of the current best.
+    population_[best_idx_].toYAML(stem + ".yaml");
+
+    // MP4 video.
+    try {
+        const FitnessParams& fp  = params_.fitness;
+        const VideoParams&   vp  = params_.video;
+        Robot robot_copy = population_[best_idx_];
+        Simulator sim(robot_copy);
+        sim.wind      = fp.wind;
+        sim.mu_static = fp.mu_static;
+
+        const int spf = std::max(1, vp.steps_per_frame);
+        VideoRenderer vid(vp.fps);
+        vid.setVerbose(vp.verbose);
+        int total_steps = 0;
+        for (int c = 0; c < fp.cycles; ++c) {
+            sim.tickNeural();
+            sim.applyActuators(fp.steps_per_cycle);
+            int remaining = fp.steps_per_cycle;
+            while (remaining > 0) {
+                const int chunk = std::min(remaining, spf);
+                sim.relax(chunk, fp.step_size, 0.0, 0.0);
+                remaining   -= chunk;
+                total_steps += chunk;
+                sim.copyPositionsBack(robot_copy);
+                vid.addFrame(robot_copy,
+                             static_cast<double>(total_steps) * fp.step_size,
+                             sim.activations_);
+            }
+        }
+        vid.finish(stem + ".mp4");
+        std::cout << "[Evolver] periodic video → " << stem << ".mp4\n";
+    } catch (const std::exception& e) {
+        std::cerr << "[Evolver] periodic video skipped at eval " << eval_num
+                  << ": " << e.what() << "\n";
+    }
+}
+
+// Print a selection/mutation stats digest to stdout.
+// Called every report_interval evals by collect_one.
+void Evolver::printSelectionReport(double mean)
+{
+    const int n = static_cast<int>(fitnesses_.size());
+
+    // ── Population fitness stats ──────────────────────────────────────────
+    double fmin = fitnesses_[0], fmax = fitnesses_[0], sum2 = 0.0;
+    for (double f : fitnesses_) {
+        if (f < fmin) fmin = f;
+        if (f > fmax) fmax = f;
+        sum2 += (f - mean) * (f - mean);
+    }
+    const double stddev = std::sqrt(sum2 / n);
+
+    // ── Selection pressure: fraction of roulette share held by top 10% ───
+    double total = 0.0;
+    for (double f : fitnesses_) total += f;
+    std::vector<double> sorted = fitnesses_;
+    std::sort(sorted.begin(), sorted.end(), std::greater<double>());
+    const int top10_n = std::max(1, n / 10);
+    double top10_sum = 0.0;
+    for (int i = 0; i < top10_n; ++i) top10_sum += sorted[i];
+    const double top10_share = (total > 0.0) ? (top10_sum / total * 100.0) : 0.0;
+
+    // ── Mutation operator counts over last report_interval ────────────────
+    const int total_ops = mc_perturb_ + mc_add_remove_ + mc_split_
+                        + mc_attach_  + mc_rewire_;
+
+    std::cout << std::fixed << std::setprecision(4)
+              << "  pop: min=" << fmin << "m  max=" << fmax << "m"
+              << "  stddev=" << stddev << "m\n"
+              << std::setprecision(1)
+              << "  selection: top-10% hold " << top10_share
+              << "% of roulette share  (pop_size=" << n << ")\n"
+              << "  mutations last " << params_.report_interval << " evals"
+              << " (total_ops=" << total_ops << ")"
+              << ":  perturb=" << mc_perturb_
+              << "  add/remove=" << mc_add_remove_
+              << "  split=" << mc_split_
+              << "  attach=" << mc_attach_
+              << "  rewire=" << mc_rewire_
+              << "  forced=" << mc_forced_ << "\n";
+}
+
 // Save the best robot's YAML + PNG + MP4 to checkpoints/ whenever a new fitness record is set.
 void Evolver::maybeSaveSnapshot(int eval_num)
 {
@@ -319,6 +432,7 @@ void Evolver::maybeSaveSnapshot(int eval_num)
     // Save PNG snapshot — requires a display; skip gracefully if unavailable.
     try {
         SnapshotRenderer snap;
+        snap.setVerbose(params_.video.verbose);
         snap.render(population_[best_idx_], stem + ".png");
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] snapshot PNG skipped at eval " << eval_num
@@ -336,6 +450,7 @@ void Evolver::maybeSaveSnapshot(int eval_num)
 
         const int spf = std::max(1, vp.steps_per_frame);
         VideoRenderer vid(vp.fps);
+        vid.setVerbose(vp.verbose);
         int total_steps = 0;
         for (int c = 0; c < fp.cycles; ++c) {
             sim.tickNeural();
@@ -348,7 +463,8 @@ void Evolver::maybeSaveSnapshot(int eval_num)
                 total_steps += chunk;
                 sim.copyPositionsBack(robot_copy);
                 vid.addFrame(robot_copy,
-                             static_cast<double>(total_steps) * fp.step_size);
+                             static_cast<double>(total_steps) * fp.step_size,
+                             sim.activations_);
             }
         }
         vid.finish(stem + ".mp4");
@@ -401,7 +517,10 @@ void Evolver::run()
     // Captures fitness params by value so workers need no shared data.
     auto eval_worker = [fitness_params = params_.fitness](EvalJob job) -> EvalResult {
         double f = FitnessEvaluator(fitness_params).evaluate(job.child);
-        return EvalResult{ std::move(job.child), job.replace_idx, f, job.parent_id };
+        return EvalResult{ std::move(job.child), job.replace_idx, f,
+                           job.parent_id, job.parent_fitness,
+                           job.parent_rank, job.parent_sel_prob,
+                           job.mutation_record };
     };
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -412,11 +531,28 @@ void Evolver::run()
     // Build one mutated child and submit it for evaluation.
     auto submit_one = [&]() {
         const int parent_idx = selectParent();
-        const Robot::ID pid  = population_[parent_idx].id;
+        const Robot::ID  pid        = population_[parent_idx].id;
+        const double     pfitness   = fitnesses_[parent_idx];
+
+        // ── Compute parent selection context ──────────────────────────────
+        // Rank: 1 = highest fitness.
+        const int n = static_cast<int>(fitnesses_.size());
+        std::vector<int> order(n);
+        std::iota(order.begin(), order.end(), 0);
+        std::sort(order.begin(), order.end(),
+                  [&](int a, int b){ return fitnesses_[a] > fitnesses_[b]; });
+        int parent_rank = 1;
+        for (int i = 0; i < n; ++i)
+            if (order[i] == parent_idx) { parent_rank = i + 1; break; }
+
+        double total_fitness = 0.0;
+        for (double f : fitnesses_) total_fitness += f;
+        const double parent_sel_prob =
+            (total_fitness > 0.0) ? (pfitness / total_fitness) : (1.0 / n);
 
         Robot child = population_[parent_idx].clone();
         child.id = Robot::nextId();
-        Mutator::mutate(child, rng_, params_.mutation);
+        MutationRecord mrec = Mutator::mutateRecord(child, rng_, params_.mutation);
 
         int rerolls = 0;
         while (!child.isValid()) {
@@ -426,14 +562,16 @@ void Evolver::run()
                           << eval_count_ << " — using unmutated clone\n";
                 child = population_[parent_idx].clone();
                 child.id = Robot::nextId();
+                mrec = MutationRecord{};  // fallback: no ops recorded
                 break;
             }
             child = population_[parent_idx].clone();
             child.id = Robot::nextId();
-            Mutator::mutate(child, rng_, params_.mutation);
+            mrec = Mutator::mutateRecord(child, rng_, params_.mutation);
         }
 
-        EvalJob job{ std::move(child), selectReplacement(), pid };
+        EvalJob job{ std::move(child), selectReplacement(), pid,
+                     pfitness, parent_rank, parent_sel_prob, mrec };
         in_flight.push_back(
             std::async(std::launch::async, eval_worker, std::move(job)));
     };
@@ -452,10 +590,44 @@ void Evolver::run()
         population_[ridx].parent_id = res.parent_id;
         population_[ridx].fitness   = res.fitness;
 
-        // Archive on disk.
+        const Robot::ID child_id = population_[ridx].id;
+
+        // Archive robot YAML on disk.
         population_[ridx].toYAML(
             params_.run_dir + "robots/robot_" +
-            std::to_string(population_[ridx].id) + ".yaml");
+            std::to_string(child_id) + ".yaml");
+
+        // ── Per-robot lineage + mutation log ──────────────────────────────
+        {
+            const int pop_n = static_cast<int>(fitnesses_.size());
+            const double improvement = (res.parent_fitness > 0.0)
+                ? ((res.fitness - res.parent_fitness) / res.parent_fitness * 100.0)
+                : 0.0;
+
+            std::ofstream rlog(params_.run_dir + "robots/robot_" +
+                               std::to_string(child_id) + ".txt");
+            rlog << std::fixed << std::setprecision(4)
+                 << "=== Robot " << child_id << " ===\n"
+                 << "eval            : " << (eval_count_ + 1) << "\n"
+                 << "parent_id       : " << res.parent_id << "\n"
+                 << "parent_fitness  : " << res.parent_fitness << " m"
+                 << "  (rank " << res.parent_rank << "/" << pop_n
+                 << ", " << std::setprecision(2) << (res.parent_sel_prob * 100.0)
+                 << "% roulette share)\n"
+                 << std::setprecision(4)
+                 << "mutation        : " << res.mutation_record.describe() << "\n"
+                 << "child_fitness   : " << res.fitness << " m"
+                 << "  (" << std::showpos << std::setprecision(2) << improvement
+                 << std::noshowpos << "% vs parent)\n";
+        }
+
+        // ── Update mutation op counters ───────────────────────────────────
+        if (res.mutation_record.perturb)    ++mc_perturb_;
+        if (res.mutation_record.add_remove) ++mc_add_remove_;
+        if (res.mutation_record.split)      ++mc_split_;
+        if (res.mutation_record.attach)     ++mc_attach_;
+        if (res.mutation_record.rewire)     ++mc_rewire_;
+        if (res.mutation_record.was_forced) ++mc_forced_;
 
         // Update best_idx_.
         if (ridx == best_idx_) {
@@ -486,7 +658,7 @@ void Evolver::run()
                          << "\n";
 
             lineage_log_ << eval_count_
-                         << "," << population_[ridx].id
+                         << "," << child_id
                          << "," << res.parent_id
                          << "," << res.fitness
                          << "," << replaced_id
@@ -498,15 +670,22 @@ void Evolver::run()
                 lineage_log_.flush();
             }
 
-            if (eval_count_ % 200 == 0) {
+            const int ri = params_.report_interval;
+            if (ri > 0 && eval_count_ % ri == 0) {
                 std::cout << std::fixed << std::setprecision(4)
                           << "eval=" << eval_count_
                           << "  best=" << fitnesses_[best_idx_] << "m"
                           << "  mean=" << mean << "m\n";
+                printSelectionReport(mean);
+
+                // Reset mutation counters for next interval.
+                mc_perturb_ = mc_add_remove_ = mc_split_ =
+                    mc_attach_ = mc_rewire_ = mc_forced_ = 0;
             }
         }
 
         maybeSaveSnapshot(eval_count_);
+        maybeSavePeriodicVideo(eval_count_);
     };
 
     // ── Phase 1: fill the window ──────────────────────────────────────────

@@ -79,6 +79,11 @@ public:
      */
     void runInteractive(const Robot& robot, int floor_slices = 40);
 
+    /** Set rendering verbosity.  Call before openWindow().
+     *  false (default) = suppress raylib INFO/DEBUG trace output.
+     *  true            = show full raylib trace log (useful for debugging). */
+    void setVerbose(bool v) { verbose_ = v; }
+
     // ── Coordinate helper (public so subclasses / tests can use it) ───────
 
     /// Convert simulation Z-up position to Raylib Y-up Vector3.
@@ -161,7 +166,8 @@ protected:
     int         m_width;
     int         m_height;
     int         m_target_fps;
-    bool        m_open = false;
+    bool        m_open    = false;
+    bool        verbose_  = false;  ///< when false, raylib trace log is silenced (default)
 
     Camera3D    m_camera{};
 };

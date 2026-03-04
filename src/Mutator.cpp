@@ -137,6 +137,25 @@ void MutatorParams::toYAML(YAML::Emitter& out) const
     out << YAML::Key << "new_synapse_weight_max"<< YAML::Value << new_synapse_weight_max;
 }
 
+// ── MutationRecord::describe() ───────────────────────────────────────────────
+
+std::string MutationRecord::describe() const
+{
+    std::string ops;
+    auto append = [&](const char* name) {
+        if (!ops.empty()) ops += ", ";
+        ops += name;
+    };
+    if (perturb)    append("perturb");
+    if (add_remove) append("add_remove");
+    if (split)      append("split");
+    if (attach)     append("attach");
+    if (rewire)     append("rewire");
+    if (ops.empty()) ops = "add_neuron";  // forced fallback
+    if (was_forced) ops += " [forced]";
+    return ops;
+}
+
 // ── mutate() ─────────────────────────────────────────────────────────────────
 
 void Mutator::mutate(Robot& robot, std::mt19937& rng, const MutatorParams& params)
@@ -170,6 +189,52 @@ void Mutator::mutate(Robot& robot, std::mt19937& rng, const MutatorParams& param
         if (!any_fired)
             addConnectedNeuron(robot, rng, params);   // always succeeds
     }
+}
+
+// ── mutateRecord() ────────────────────────────────────────────────────────────
+//
+// Mirrors mutate() exactly but captures which operators fired in a
+// MutationRecord so the caller can log or display the mutation history.
+
+MutationRecord Mutator::mutateRecord(Robot& robot, std::mt19937& rng,
+                                     const MutatorParams& params)
+{
+    MutationRecord rec;
+
+    if (uniform01(rng) < params.p_perturb)
+        rec.perturb    = perturbElement(robot, rng, params);
+
+    if (uniform01(rng) < params.p_add_remove)
+        rec.add_remove = addRemoveElement(robot, rng, params);
+
+    if (uniform01(rng) < params.p_split)
+        rec.split      = splitElement(robot, rng, params);
+
+    if (uniform01(rng) < params.p_attach)
+        rec.attach     = attachDetach(robot, rng, params);
+
+    if (uniform01(rng) < params.p_rewire)
+        rec.rewire     = rewireNeuron(robot, rng, params);
+
+    const bool any_fired = rec.perturb || rec.add_remove || rec.split
+                         || rec.attach || rec.rewire;
+
+    if (!any_fired) {
+        rec.was_forced = true;
+        const int op = uniformInt(rng, 0, 4);
+        bool fired = false;
+        switch (op) {
+            case 0: fired = perturbElement(robot, rng, params);    rec.perturb    = fired; break;
+            case 1: fired = addRemoveElement(robot, rng, params);  rec.add_remove = fired; break;
+            case 2: fired = splitElement(robot, rng, params);      rec.split      = fired; break;
+            case 3: fired = attachDetach(robot, rng, params);      rec.attach     = fired; break;
+            case 4: fired = rewireNeuron(robot, rng, params);      rec.rewire     = fired; break;
+        }
+        if (!fired)
+            addConnectedNeuron(robot, rng, params);   // always succeeds
+    }
+
+    return rec;
 }
 
 // ── perturbElement() ─────────────────────────────────────────────────────────

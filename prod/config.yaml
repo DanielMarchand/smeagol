@@ -6,7 +6,6 @@
 # Final robot:      prod/runs/run_<timestamp>/best_robot_final.yaml
 # Resume:           add  resume: true  below and re-run the same command.
 #
-# For a real overnight run, bump population_size → 200 and max_evaluations → 100000.
 # ─────────────────────────────────────────────────────────────────────────────
 
 population_size:  200
@@ -15,6 +14,9 @@ seed:             0          # 0 = seed from std::random_device (different each 
 output_base_dir:  prod/runs/ # timestamped run dirs are created here
 record_min_improvement: 0.01  # new record must beat old by at least this many metres
 # resume:         true       # uncomment to continue from checkpoint_population.yaml
+
+report_interval: 50
+periodic_video_interval: 50
 
 fitness:
   cycles:          12
@@ -45,7 +47,7 @@ mutation:
   threshold_min:  0.00
   threshold_max:  2.00
 
-  split_vertex_offset: 0.01
+  split_vertex_offset: 0.02
   actuator_range_max:  0.01
 
   new_synapse_weight_min: -1.00
