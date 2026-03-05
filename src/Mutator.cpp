@@ -110,6 +110,8 @@ MutatorParams MutatorParams::fromYAML(const YAML::Node& n)
     if (n["bar_length_max"])         p.bar_length_max         = n["bar_length_max"].as<double>();
     if (n["threshold_min"])          p.threshold_min          = n["threshold_min"].as<double>();
     if (n["threshold_max"])          p.threshold_max          = n["threshold_max"].as<double>();
+    if (n["perturb_bar_grow_only_below"]) p.perturb_bar_grow_only_below = n["perturb_bar_grow_only_below"].as<double>();
+    if (n["split_bar_min_length"])   p.split_bar_min_length   = n["split_bar_min_length"].as<double>();
     if (n["split_vertex_offset"])    p.split_vertex_offset    = n["split_vertex_offset"].as<double>();
     if (n["actuator_range_max"])     p.actuator_range_max     = n["actuator_range_max"].as<double>();
     if (n["new_synapse_weight_min"]) p.new_synapse_weight_min = n["new_synapse_weight_min"].as<double>();
@@ -131,6 +133,8 @@ void MutatorParams::toYAML(YAML::Emitter& out) const
     out << YAML::Key << "bar_length_max"        << YAML::Value << bar_length_max;
     out << YAML::Key << "threshold_min"         << YAML::Value << threshold_min;
     out << YAML::Key << "threshold_max"         << YAML::Value << threshold_max;
+    out << YAML::Key << "perturb_bar_grow_only_below" << YAML::Value << perturb_bar_grow_only_below;
+    out << YAML::Key << "split_bar_min_length"  << YAML::Value << split_bar_min_length;
     out << YAML::Key << "split_vertex_offset"   << YAML::Value << split_vertex_offset;
     out << YAML::Key << "actuator_range_max"    << YAML::Value << actuator_range_max;
     out << YAML::Key << "new_synapse_weight_min"<< YAML::Value << new_synapse_weight_min;
@@ -244,10 +248,14 @@ bool Mutator::perturbElement(Robot& robot, std::mt19937& rng, const MutatorParam
     bool fired = false;
 
     // ── Bars: nudge rest_length by ±perturb_bar_frac ─────────────────────────
+    // Short bars (< perturb_bar_grow_only_below) always grow: multiplier is
+    // drawn from U[1.0, 1+frac] instead of U[1-frac, 1+frac].
     if (!robot.bars.empty()) {
         const int b = uniformInt(rng, 0, static_cast<int>(robot.bars.size()) - 1);
-        robot.bars[b].rest_length *= uniformReal(rng,
-            1.0 - params.perturb_bar_frac, 1.0 + params.perturb_bar_frac);
+        const double lo = (robot.bars[b].rest_length < params.perturb_bar_grow_only_below)
+                          ? 1.0
+                          : 1.0 - params.perturb_bar_frac;
+        robot.bars[b].rest_length *= uniformReal(rng, lo, 1.0 + params.perturb_bar_frac);
         robot.bars[b].rest_length  = std::clamp(robot.bars[b].rest_length,
             params.bar_length_min, params.bar_length_max);
         fired = true;
@@ -433,11 +441,21 @@ bool Mutator::splitElement(Robot& robot, std::mt19937& rng, const MutatorParams&
     const bool has_bar    = !robot.bars.empty();
     if (!has_vertex && !has_bar) return false;
 
+    // Exclude bars that are too short to bisect; if none remain, force vertex-split.
+    std::vector<int> splittable_bars;
+    for (int i = 0; i < static_cast<int>(robot.bars.size()); ++i)
+        if (robot.bars[i].rest_length >= params.split_bar_min_length)
+            splittable_bars.push_back(i);
+    const bool has_splittable_bar = !splittable_bars.empty();
+
+    // Nothing useful to do if no vertices and all bars are too short.
+    if (!has_vertex && !has_splittable_bar) return false;
+
     bool split_vertex;
-    if (has_vertex && has_bar)
+    if (has_vertex && has_splittable_bar)
         split_vertex = (uniform01(rng) < 0.5);
     else
-        split_vertex = has_vertex;
+        split_vertex = has_vertex;  // forced vertex-split (or false if no vertices)
 
     if (split_vertex) {
         const int v = uniformInt(rng, 0,
@@ -455,8 +473,8 @@ bool Mutator::splitElement(Robot& robot, std::mt19937& rng, const MutatorParams&
         return true;
     }
     else {
-        const int b = uniformInt(rng, 0,
-            static_cast<int>(robot.bars.size()) - 1);
+        const int b = splittable_bars[
+            uniformInt(rng, 0, static_cast<int>(splittable_bars.size()) - 1)];
 
         const Bar    B    = robot.bars[b];
         const int    v1   = B.v1;

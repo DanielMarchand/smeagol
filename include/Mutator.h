@@ -36,6 +36,16 @@ struct MutatorParams
     double threshold_min = 0.00; ///< minimum neuron threshold after clamping
     double threshold_max = 2.00; ///< maximum neuron threshold after clamping
 
+    // ── perturbElement growth bias ─────────────────────────────────────────────
+    /// Bars whose rest_length is below this threshold will only ever grow when
+    /// perturbed (multiplier drawn from U[1.0, 1+frac] instead of U[1-frac, 1+frac]).
+    double perturb_bar_grow_only_below = 0.02;
+
+    // ── splitElement minimum bar length ──────────────────────────────────────
+    /// Bar-bisect splits are skipped for bars shorter than this; the operator
+    /// falls back to vertex-split (or returns false if no vertices exist).
+    double split_bar_min_length = 0.03;
+
     // ── splitElement offset ───────────────────────────────────────────────────
     double split_vertex_offset = 0.01; ///< vertex-split offset drawn from U[-v,+v]
 
