@@ -412,6 +412,73 @@ If **none** of the five operators fires naturally in a given step, one is forced
 
 ---
 
+---
+
+### Parallel evaluation
+
+#### The rolling flight window
+
+There are two kinds of threads: one **manager** thread that runs the evolutionary loop, and `W = hardware_threads - 1` **worker** threads that each run one fitness evaluation at a time.
+
+The manager keeps a vector of in-flight futures — one per worker. Whenever a worker finishes and its slot is freed, the manager immediately submits a new child to fill it. This keeps all workers busy as long as there is work to do.
+
+#### `waitForAny` — how the manager picks the next result
+
+The naive approach is to always wait for the oldest in-flight job first. The problem: if that job happens to be a slow robot, every other worker finishes and sits idle while the manager is stuck blocking on that one future.
+
+The fix is `waitForAny`. Instead of blocking on a specific future, it scans all in-flight futures and returns the index of whichever one finishes first:
+
+```cpp
+static int waitForAny(std::vector<EvalFuture>& jobs)
+{
+    const auto no_wait    = std::chrono::microseconds(0);
+    const auto poll_sleep = std::chrono::microseconds(200);
+
+    while (true) {
+        for (int i = 0; i < (int)jobs.size(); ++i) {
+            if (jobs[i].wait_for(no_wait) == std::future_status::ready)
+                return i;
+        }
+        std::this_thread::sleep_for(poll_sleep);
+    }
+}
+```
+
+Step by step:
+
+1. `wait_for(0µs)` probes one future **without blocking**. It returns instantly with either `ready` (the worker is done) or `timeout` (still running).
+2. The loop scans every in-flight job in zero wall time looking for the first `ready` one.
+3. If none are ready yet, the manager sleeps for 200 µs before scanning again. This prevents the manager from spinning and wasting a core.
+4. The moment any worker finishes, `waitForAny` returns its index. The manager calls `.get()` on that specific future to retrieve the result, then submits a new job into that slot.
+
+#### The `isNonMover` fast path
+
+Most robots early in a run have no actuators or no neurons — they are structurally inert and will score exactly 0.0 regardless of how long the simulator runs. `Robot::isNonMover()` catches both cases:
+
+```cpp
+[[nodiscard]] bool isNonMover() const
+{
+    return actuators.empty() || neurons.empty();
+}
+```
+
+`FitnessEvaluator::evaluate()` checks this before constructing a `Simulator`:
+
+```cpp
+if (robot.isNonMover())
+    return 0.0;   // skip the entire physics run
+```
+
+This matters because building a `Simulator` and running even a short physics loop is expensive. Early-generation populations are often 90 %+ non-movers, so this fast path keeps all worker threads cycling through trivial evaluations at full speed while the rare robot-with-neurons runs its full simulation on one thread.
+
+#### Why order is not preserved — and why that is fine
+
+Because `waitForAny` picks the fastest-finishing job rather than the oldest, the lineage log and fitness log are written in completion order rather than submission order. The `eval` counter in those files may therefore not be strictly monotonic in wall-clock time across threads.
+
+This does not affect correctness. The population state is only ever modified by the single-threaded manager, so every write to `population_` and `fitnesses_` is sequentially consistent. There are no races. The evolutionary dynamics are identical to serial execution except that the effective throughput scales with `W`.
+
+---
+
 ### Config reference
 
 Full `selection:` block with all defaults:

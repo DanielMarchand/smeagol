@@ -17,11 +17,26 @@
 struct MutatorParams
 {
     // ── Per-operator firing probabilities ─────────────────────────────────────
-    double p_perturb    = 0.10;  ///< probability perturbElement fires each step
-    double p_add_remove = 0.01;  ///< probability addRemoveElement fires
-    double p_split      = 0.03;  ///< probability splitElement fires
-    double p_attach     = 0.03;  ///< probability attachDetach fires
-    double p_rewire     = 0.03;  ///< probability rewireNeuron fires
+    double p_perturb        = 0.10;  ///< probability perturbElement fires each step
+    double p_add_bar_new    = 0.005; ///< Strategy A: new vertex + bar dangled off existing
+    double p_add_bar_bridge = 0.010; ///< Strategy B: connect two existing unconnected vertices
+    double p_add_neuron        = 0.005; ///< add a fully-connected neuron
+    double p_remove_bar        = 0.005; ///< remove a random bar (connectivity-guarded)
+    double p_remove_neuron     = 0.005; ///< remove a random neuron
+    double p_remove_bar_edge   = 0.005; ///< reverse of Strategy A: remove a leaf bar + its leaf vertex (-1v -1b)
+    double p_remove_bar_bridge = 0.005; ///< reverse of Strategy B: remove a non-bridge bar between two degree-2+ vertices (-1b)
+    double p_join_vertex       = 0.005; ///< reverse of splitElement bar-bisect: merge a degree-2 internal vertex into one bar
+    double p_split_vertex      = 0.03;  ///< probability splitElement fires
+    double p_attach_neuron     = 0.03;  ///< attach a neuron to an unactuated bar
+    double p_detach_neuron     = 0.03;  ///< detach all actuators from an actuated bar
+    double p_rewire            = 0.03;  ///< probability rewireNeuron fires
+
+    // ── Retry limit ───────────────────────────────────────────────────────────
+    /// When a stochastically-fired operator returns false (e.g. all bars are
+    /// bridges so removeBar cannot disconnect-safely), it is retried up to this
+    /// many times before the mutation is aborted and the robot returned as a
+    /// clone.  This is the per-method retry limit, not the stochastic round count.
+    int num_method_retries = 10;
 
     // ── perturbElement knobs ──────────────────────────────────────────────────
     double perturb_bar_frac      = 0.10; ///< bar rest_length multiplied by U[1-f, 1+f]
@@ -55,7 +70,9 @@ struct MutatorParams
     // ── addConnectedNeuron synapse weight ─────────────────────────────────────
     double new_synapse_weight_min = 0.50; ///< lower bound of |new synapse weight|
     double new_synapse_weight_max = 1.50; ///< upper bound of |new synapse weight|
-
+    // ── stiffness range for new bars added by mutations ──────────────────────────
+    double new_bar_stiffness_min = 10000.0;  ///< min stiffness k [N/m] for new bars
+    double new_bar_stiffness_max = 100000.0; ///< max stiffness k [N/m] for new bars
     /** Load all fields from a YAML mapping node (used as a sub-node of the
      *  top-level config).  Any field absent in the node keeps its default. */
     static MutatorParams fromYAML(const YAML::Node& node);
@@ -72,19 +89,53 @@ struct MutatorParams
  *
  * Returned by Mutator::mutateRecord() so callers can log/audit what happened.
  * The five bool flags correspond to the five operators; was_forced is true when
- * none fired stochastically and one was selected at random to guarantee progress.
+ * none fired stochastically and one was auto-selected to guarantee progress.
  */
 struct MutationRecord
 {
-    bool perturb    = false;  ///< perturbElement fired
-    bool add_remove = false;  ///< addRemoveElement fired
-    bool split      = false;  ///< splitElement fired
-    bool attach     = false;  ///< attachDetach fired
-    bool rewire     = false;  ///< rewireNeuron fired
-    bool was_forced = false;  ///< true if no op fired naturally, one was forced
+    bool perturb        = false;  ///< perturbElement fired
+    bool add_bar_new    = false;  ///< addBarNew fired (Strategy A)
+    bool add_bar_bridge = false;  ///< addBarBridge fired (Strategy B)
+    bool add_neuron     = false;  ///< addNeuron fired
+    bool remove_bar        = false;  ///< removeBar fired
+    bool remove_neuron     = false;  ///< removeNeuron fired
+    bool remove_bar_edge   = false;  ///< removeBarEdge fired (reverse of addBarNew)
+    bool remove_bar_bridge = false;  ///< removeBarBridge fired (reverse of addBarBridge)
+    bool join_vertex     = false;  ///< joinElement fired (reverse of splitElement bar-bisect)
+    bool split_vertex    = false;  ///< splitElement fired
+    bool attach_neuron   = false;  ///< attachNeuron fired
+    bool detach_neuron   = false;  ///< detachNeuron fired
+    bool rewire          = false;  ///< rewireNeuron fired
+    bool was_cloned      = false;  ///< true if retries exhausted — robot returned unchanged
 
-    /// Human-readable comma-separated list of operators that fired,
-    /// e.g. "perturb, split" or "add_remove [forced]".
+    /// Per-op structural detail (empty if op didn't fire).
+    /// For perturb: what was touched, e.g. "bar-len neuron".
+    /// For all others: topology delta, e.g. "+1b", "-1n", "+1v +1b".
+    std::string perturb_detail;
+    std::string add_bar_new_detail;
+    std::string add_bar_bridge_detail;
+    std::string add_neuron_detail;
+    std::string remove_bar_detail;
+    std::string remove_neuron_detail;
+    std::string remove_bar_edge_detail;
+    std::string remove_bar_bridge_detail;
+    std::string join_vertex_detail;
+    std::string split_vertex_detail;
+    std::string attach_neuron_detail;
+    std::string detach_neuron_detail;
+    std::string rewire_detail;
+
+    /// How many full passes through all stochastic ops before one fired.
+    /// 1 means something fired on the first pass (normal); >1 indicates low-probability regime.
+    int stoch_rounds = 0;
+
+    /// Number of invalid-robot rerolls before this child was accepted.
+    int rerolls = 0;
+
+    /// Final topology counts after all mutation ops.
+    int v_after = 0, b_after = 0, n_after = 0, a_after = 0;
+
+    /// Human-readable description with per-op detail, reroll count and final state.
     std::string describe() const;
 };
 
@@ -138,15 +189,75 @@ public:
                                const MutatorParams& params = MutatorParams{});
 
     /**
-     * Add or remove a single bar or neuron element.
-     * Add-bar uses a new vertex + Gaussian-length bar (Strategy A) or
-     * picks two existing distinct vertices (Strategy B); uniqueness is enforced.
-     * Add-neuron always produces a connected neuron (≥1 non-zero synapse or
-     * an immediate actuator).
-     * Returns true if the graph was changed.
+     * Add a bar using Strategy A: pick an existing vertex, place a new vertex at
+     * median-length offset in a random direction, and connect them.
+     * Bootstraps from scratch if no vertices exist.
+     * Always returns true.
      */
-    static bool addRemoveElement(Robot& robot, std::mt19937& rng,
-                                  const MutatorParams& params = MutatorParams{});
+    static bool addBarNew(Robot& robot, std::mt19937& rng,
+                          const MutatorParams& params = MutatorParams{});
+
+    /**
+     * Add a bar using Strategy B: find two existing vertices with no bar between
+     * them and connect them with a new bar at their Euclidean distance.
+     * Returns false if all vertex pairs are already connected.
+     */
+    static bool addBarBridge(Robot& robot, std::mt19937& rng,
+                              const MutatorParams& params = MutatorParams{});
+
+    /**
+     * Add one fully-connected neuron (at least one non-zero synapse or an
+     * immediate actuator if no other neurons exist).
+     * Always succeeds.
+     */
+    static void addNeuron(Robot& robot, std::mt19937& rng,
+                          const MutatorParams& params = MutatorParams{});
+
+    /**
+     * Remove a randomly chosen bar.
+     * Guarded: if removal disconnects the graph the robot is restored and
+     * false is returned.  Returns false if no bars exist.
+     */
+    static bool removeBar(Robot& robot, std::mt19937& rng,
+                          const MutatorParams& params = MutatorParams{});
+
+    /**
+     * Remove a randomly chosen neuron.
+     * Returns false if no neurons exist.
+     */
+    static bool removeNeuron(Robot& robot, std::mt19937& rng,
+                              const MutatorParams& params = MutatorParams{});
+
+    /**
+     * Reverse of addBarNew (Strategy A): remove a leaf bar and its degree-1 vertex.
+     * Safe: leaf removal can never disconnect the graph.
+     * Returns false when no leaf bars exist (all vertices have degree >= 2).
+     */
+    static bool removeBarEdge(Robot& robot, std::mt19937& rng,
+                              const MutatorParams& params = MutatorParams{});
+
+    /**
+     * Reverse of addBarBridge (Strategy B): remove a non-bridge bar whose both
+     * endpoints retain degree >= 1 after removal (neither becomes isolated).
+     * Returns false when no such bar exists.
+     */
+    static bool removeBarBridge(Robot& robot, std::mt19937& rng,
+                                const MutatorParams& params = MutatorParams{});
+
+    /**
+     * Reverse of splitElement (bar-bisect mode).
+     * Finds an internal degree-2 vertex w whose both neighbours u, v have
+     * degree >= 2 and are not yet directly connected.  Removes w and its two
+     * incident bars, inserts bar(u, v) with rest_length = |p_u - p_v| and
+     * stiffness = (k1+k2)/2.  Actuators on the two half-bars are merged onto
+     * the new bar; orphaned neurons are left intact.
+     * Returns false when no eligible vertex exists or the merged bar would be
+     * shorter than params.bar_length_min.
+     *
+     * NOT YET IMPLEMENTED — stub always returns false.
+     */
+    static bool joinElement(Robot& robot, std::mt19937& rng,
+                            const MutatorParams& params = MutatorParams{});
 
     /**
      * Split a random vertex into two (connected by a tiny new bar) or
@@ -158,12 +269,18 @@ public:
                              const MutatorParams& params = MutatorParams{});
 
     /**
-     * Toggle a random bar between structural and actuated:
-     *   structural → actuated:  add Actuator(bar, random_neuron, random_range)
-     *   actuated   → structural: remove ALL actuators targeting that bar
-     * Returns true if the actuator list was changed.
+     * Attach: pick a bar that has no actuators and wire it to a random neuron
+     * (creating one if none exist).  Returns false if all bars are already
+     * actuated.
      */
-    static bool attachDetach(Robot& robot, std::mt19937& rng,
+    static bool attachNeuron(Robot& robot, std::mt19937& rng,
+                             const MutatorParams& params = MutatorParams{});
+
+    /**
+     * Detach: pick a bar that has at least one actuator and remove all of its
+     * actuators.  Returns false if no bars are currently actuated.
+     */
+    static bool detachNeuron(Robot& robot, std::mt19937& rng,
                              const MutatorParams& params = MutatorParams{});
 
     /**
@@ -183,13 +300,4 @@ private:
      */
     static void addConnectedNeuron(Robot& robot, std::mt19937& rng,
                                     const MutatorParams& params);
-
-    /**
-     * Attempt to add one bar via Strategy A (new vertex placed at median-length
-     * from an existing vertex, in a random direction) or Strategy B (pick two
-     * existing distinct vertices and use their Euclidean distance as rest_length).
-     * Returns true if a bar was added.
-     */
-    static bool addBarMutation(Robot& robot, std::mt19937& rng,
-                               const MutatorParams& params);
 };

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <stdexcept>
 
@@ -67,6 +68,14 @@ int Robot::addNeuron(const Neuron& n)
 
 int Robot::addActuator(const Actuator& a)
 {
+    // Invariant: at most one actuator per bar.  If bar_idx already has one,
+    // replace it (the new one wins) rather than creating a duplicate.
+    for (auto& existing : actuators) {
+        if (existing.bar_idx == a.bar_idx) {
+            existing = a;
+            return static_cast<int>(&existing - actuators.data());
+        }
+    }
     actuators.push_back(a);
     return static_cast<int>(actuators.size()) - 1;
 }
@@ -209,6 +218,15 @@ bool Robot::isValid() const
         if (a.neuron_idx < 0 || a.neuron_idx >= nn) return false;
     }
 
+    // Each bar may have at most one actuator.
+    {
+        std::vector<bool> seen(nb, false);
+        for (const auto& a : actuators) {
+            if (seen[a.bar_idx]) return false;
+            seen[a.bar_idx] = true;
+        }
+    }
+
     for (const auto& n : neurons) {
         if (n.synapse_weights.size() != nn) return false;
     }
@@ -225,7 +243,96 @@ bool Robot::isValid() const
             if (!referenced[i]) return false;
     }
 
+    // Connectivity check: the bar graph must be a single connected component.
+    // Two separate clusters of bars (e.g. A-B and C-D with no link between
+    // them) are physically two separate creatures and are invalid.
+    if (!isConnected()) return false;
+
     return true;
+}
+
+bool Robot::isConnected() const
+{
+    const int nv = static_cast<int>(vertices.size());
+    if (nv <= 1) return true;   // 0 or 1 vertex is trivially connected
+
+    // Build adjacency list from bars.
+    std::vector<std::vector<int>> adj(nv);
+    for (const auto& b : bars) {
+        adj[b.v1].push_back(b.v2);
+        adj[b.v2].push_back(b.v1);
+    }
+
+    // BFS flood-fill from vertex 0.
+    std::vector<bool> visited(nv, false);
+    std::queue<int> q;
+    q.push(0);
+    visited[0] = true;
+    int count = 1;
+    while (!q.empty()) {
+        const int v = q.front(); q.pop();
+        for (const int nb : adj[v]) {
+            if (!visited[nb]) {
+                visited[nb] = true;
+                ++count;
+                q.push(nb);
+            }
+        }
+    }
+    return count == nv;
+}
+
+// ── Neural probe ─────────────────────────────────────────────────────────────
+
+bool Robot::probeNeuralActivity(int delay_cycles, int probe_cycles) const
+{
+    const int N = static_cast<int>(neurons.size());
+    if (N == 0 || actuators.empty()) return false;
+
+    // ── Step 1: initialise activations from genotype's stored state ───────
+    std::vector<double> act(N);
+    for (int i = 0; i < N; ++i)
+        act[i] = neurons[i].activation;
+
+    // Helper: one neural tick (same logic as Simulator::tickNeural)
+    auto tick = [&]() {
+        const std::vector<double> prev = act;
+        for (int i = 0; i < N; ++i) {
+            const Neuron& n  = neurons[i];
+            const int     sw = static_cast<int>(n.synapse_weights.size());
+            double weighted_sum = 0.0;
+            for (int j = 0; j < N && j < sw; ++j)
+                weighted_sum += n.synapse_weights(j) * prev[j];
+            act[i] = (weighted_sum >= n.threshold) ? 1.0 : 0.0;
+        }
+    };
+
+    // ── Step 2: delay phase — let network settle, ignore output ──────────
+    for (int c = 0; c < delay_cycles; ++c)
+        tick();
+
+    // ── Step 3: snapshot outputs of actuator-driving neurons ──────────────
+    // Record the output of each actuator's driving neuron.
+    const int NA = static_cast<int>(actuators.size());
+    std::vector<double> prev_out(NA);
+    for (int a = 0; a < NA; ++a) {
+        const int ni = actuators[a].neuron_idx;
+        prev_out[a] = (ni >= 0 && ni < N) ? act[ni] : 0.0;
+    }
+
+    // ── Step 4: probe phase — watch for any delta in actuator outputs ─────
+    for (int c = 0; c < probe_cycles; ++c) {
+        tick();
+        for (int a = 0; a < NA; ++a) {
+            const int ni = actuators[a].neuron_idx;
+            const double out = (ni >= 0 && ni < N) ? act[ni] : 0.0;
+            if (out != prev_out[a])
+                return true;   // ALIVE: at least one actuator-driving neuron changed state
+            prev_out[a] = out;
+        }
+    }
+
+    return false;  // DEAD: no actuator-driving neuron ever changed output
 }
 
 // ── Structural cleanup ────────────────────────────────────────────────────────
@@ -378,14 +485,22 @@ void Robot::toYAML(const std::string& path) const
 
 Robot Robot::fromYAML(const std::string& path)
 {
+    if (!std::filesystem::exists(path)) {
+        throw std::runtime_error("file not found: " + path);
+    }
+
     YAML::Node doc;
     try {
         doc = YAML::LoadFile(path);
     } catch (const YAML::Exception& e) {
-        throw std::runtime_error("Robot::fromYAML: " + std::string(e.what()));
+        throw std::runtime_error("YAML parse error in '" + path + "': " + e.what());
     }
 
-    Robot r(doc["id"].as<unsigned long long>());
+    try {
+
+    // id is optional — robots exported by external tools may omit it.
+    Robot::ID loaded_id = doc["id"] ? doc["id"].as<unsigned long long>() : Robot::nextId();
+    Robot r(loaded_id);
     if (doc["parent_id"]) r.parent_id = doc["parent_id"].as<unsigned long long>();
     if (doc["fitness"])   r.fitness   = doc["fitness"].as<double>();
 
@@ -436,15 +551,17 @@ Robot Robot::fromYAML(const std::string& path)
 
     // ── actuators ─────────────────────────────────────────────────────────
     for (const auto& node : doc["actuators"]) {
-        r.actuators.emplace_back(
+        // Route through addActuator so the one-per-bar invariant is enforced
+        // even when loading YAML that was produced by a buggy earlier version.
+        r.addActuator(Actuator(
             node["bar_idx"].as<int>(),
             node["neuron_idx"].as<int>(),
             node["bar_range"].as<double>()
-        );
+        ));
     }
 
     // ── debug_actuators ───────────────────────────────────────────────────
-    if (doc["debug_actuators"]) {
+    if (doc["debug_actuators"] && doc["debug_actuators"].IsSequence()) {
         for (const auto& node : doc["debug_actuators"]) {
             r.debug_actuators.emplace_back(
                 node["bar_idx"].as<int>(),
@@ -457,4 +574,10 @@ Robot Robot::fromYAML(const std::string& path)
     }
 
     return r;
+
+    } catch (const YAML::Exception& e) {
+        throw std::runtime_error("bad field in '" + path + "': " + e.what());
+    } catch (const std::runtime_error&) {
+        throw;  // already has context
+    }
 }

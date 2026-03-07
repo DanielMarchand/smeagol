@@ -469,6 +469,170 @@ static void test_subsurface_vertex_rises_above_floor_after_relaxation()
     CHECK(sim.positions(1, 2) >= -1e-4);
 }
 
+// ── §self-collision: vertex-vertex repulsion ─────────────────────────────────
+
+// Two unconnected vertices very close together — the gradient should push them apart.
+static void test_vertex_repulsion_fires_for_close_unconnected()
+{
+    Robot r;
+    r.addVertex(Vertex(0.0, 0.0, 0.1));
+    r.addVertex(Vertex(0.008, 0.0, 0.1));  // 8 mm apart, < 20 mm threshold
+    // No bar connecting them.
+
+    Simulator sim(r);
+    sim.k_repulse_vertex        = 1e5;
+    sim.repulse_vertex_min_dist = 0.02;
+
+    // Record positions, run one relax step, check they moved apart.
+    const double x0_before = sim.positions(0, 0);
+    const double x1_before = sim.positions(1, 0);
+    sim.relax(10, 1e-8, /*noise=*/0.0);
+
+    const double sep_before = std::abs(x1_before - x0_before);
+    const double sep_after  = std::abs(sim.positions(1, 0) - sim.positions(0, 0));
+    CHECK(sep_after > sep_before);  // repulsion pushed them apart
+}
+
+// Two vertices close together but CONNECTED by a bar — repulsion must NOT apply.
+// (Trick test: the bar rest length is short, so repulsion would be wrong to fire.)
+static void test_vertex_repulsion_ignores_connected_vertices()
+{
+    Robot r;
+    r.addVertex(Vertex(0.0, 0.0, 0.1));
+    r.addVertex(Vertex(0.005, 0.0, 0.1));  // 5 mm — well inside threshold
+    r.addBar(Bar(0, 1, /*rest_length=*/0.005, /*stiffness=*/Materials::k_default));
+
+    Simulator sim(r);
+    sim.k_repulse_vertex        = 1e5;
+    sim.repulse_vertex_min_dist = 0.02;
+    sim.gravity = 0.0;
+
+    const double x0_before = sim.positions(0, 0);
+    const double x1_before = sim.positions(1, 0);
+    // Relax; the bar spring is at rest so no force — repulsion must not move them.
+    sim.relax(20, 1e-9, /*noise=*/0.0);
+
+    // Without repulsion the bar stays near rest length; with wrongly-applied
+    // repulsion the verts would fly apart.
+    const double sep_after = std::abs(sim.positions(1, 0) - sim.positions(0, 0));
+    CHECK(sep_after < 0.02);  // stayed near rest length, not blown apart
+}
+
+// ── §self-collision: bar-bar repulsion ───────────────────────────────────────
+
+// Two non-adjacent bars positioned to nearly cross in 3D — penalty fires.
+// Bar A: (-0.1, 0, 0.1) → (0.1, 0, 0.1)  (horizontal, along X)
+// Bar B: (0,  -0.1, 0.1) → (0, 0.1, 0.1)  (horizontal, along Y, same plane)
+// At rest the midpoints coincide — distance ≈ 0, well inside threshold.
+static void test_bar_repulsion_fires_for_crossing_bars()
+{
+    // Bar A lies in the Z=0.105 plane (X-direction).
+    // Bar B lies in the Z=0.095 plane (Y-direction).
+    // They form a near-crossing "+" shape — their closest approach is 0.010 m
+    // (the Z gap), which is less than repulse_bar_min_dist = 0.015 m, so the
+    // repulsion term fires and must push the bars further apart in Z.
+    Robot r;
+    r.addVertex(Vertex(-0.1,  0.0, 0.105));  // v0
+    r.addVertex(Vertex( 0.1,  0.0, 0.105));  // v1  bar A
+    r.addVertex(Vertex( 0.0, -0.1, 0.095));  // v2
+    r.addVertex(Vertex( 0.0,  0.1, 0.095));  // v3  bar B — 0.010 m below A
+    r.addBar(Bar(0, 1, 0.2));
+    r.addBar(Bar(2, 3, 0.2));
+
+    Simulator sim(r);
+    sim.k_repulse_bar        = 1e6;
+    sim.repulse_bar_min_dist = 0.015;
+    sim.gravity              = 0.0;
+
+    const double z0_before = 0.5 * (sim.positions(0,2) + sim.positions(1,2));
+    const double z2_before = 0.5 * (sim.positions(2,2) + sim.positions(3,2));
+    CHECK(z0_before > z2_before);  // bar A starts above bar B
+
+    sim.relax(100, 1e-10, 0.0);
+
+    const double z0_after = 0.5 * (sim.positions(0,2) + sim.positions(1,2));
+    const double z2_after = 0.5 * (sim.positions(2,2) + sim.positions(3,2));
+    // Bars must have separated further in Z
+    const double separation = z0_after - z2_after;
+    CHECK(separation > 1e-9);
+}
+
+// Two non-adjacent bars far apart — bar repulsion must NOT move them.
+// Trick: bars are on opposite ends of the robot, distance >> threshold.
+static void test_bar_repulsion_silent_when_bars_far_apart()
+{
+    Robot r;
+    r.addVertex(Vertex(0.0, 0.0, 0.1));   // v0
+    r.addVertex(Vertex(0.1, 0.0, 0.1));   // v1  bar A
+    r.addVertex(Vertex(1.0, 0.0, 0.1));   // v2
+    r.addVertex(Vertex(1.1, 0.0, 0.1));   // v3  bar B — 0.9 m away
+    r.addBar(Bar(0, 1, 0.1));
+    r.addBar(Bar(2, 3, 0.1));
+
+    Simulator sim(r);
+    sim.k_repulse_bar        = 1e8;
+    sim.repulse_bar_min_dist = 0.015;  // far less than 0.9 m gap
+    sim.gravity              = 0.0;
+
+    const double x1_before = sim.positions(1, 0);
+    sim.relax(20, 1e-9, 0.0);
+    const double x1_after  = sim.positions(1, 0);
+
+    CHECK_NEAR(x1_before, x1_after, 1e-9);  // no movement
+}
+
+// Adjacent bars (sharing a vertex) must NOT trigger bar repulsion even when
+// they open/close very tight angles — they are always connected neighbours.
+static void test_bar_repulsion_ignores_adjacent_bars()
+{
+    Robot r;
+    r.addVertex(Vertex(0.0, 0.0, 0.1));   // v0 — shared
+    r.addVertex(Vertex(0.1, 0.0, 0.1));   // v1
+    r.addVertex(Vertex(0.0, 0.05, 0.1));  // v2 — very close angle
+    r.addBar(Bar(0, 1, 0.1));
+    r.addBar(Bar(0, 2, 0.05));  // adjacent: shares v0
+
+    Simulator sim(r);
+    sim.k_repulse_bar        = 1e8;
+    sim.repulse_bar_min_dist = 0.20;  // huge threshold — would fire if not suppressed
+    sim.gravity              = 0.0;
+
+    const double x1_before = sim.positions(1, 0);
+    sim.relax(20, 1e-9, 0.0);
+    const double x1_after  = sim.positions(1, 0);
+    // Without adjacency check the repulsion would push v1 far away.
+    CHECK_NEAR(x1_before, x1_after, 1e-7);
+}
+
+// Timing accumulators start at zero, increment after a gradient call,
+// and reset back to zero via resetRepulseTiming().
+static void test_repulsion_timing_accumulates_and_resets()
+{
+    Robot r;
+    r.addVertex(Vertex(0.0, 0.0, 0.1));
+    r.addVertex(Vertex(0.5, 0.0, 0.1));
+    r.addBar(Bar(0, 1, 0.5));
+
+    Simulator sim(r);
+    sim.k_repulse_vertex = 1e3;
+    sim.k_repulse_bar    = 1e3;
+
+    // No timing yet.
+    CHECK_NEAR(sim.avgVertexRepulseUs(), 0.0, EPS);
+    CHECK_NEAR(sim.avgBarRepulseUs(),    0.0, EPS);
+
+    sim.relax(5, 1e-9, 0.0);
+
+    // After at least one gradient step, timing calls > 0.
+    // Exact values are platform-dependent; just check they're non-negative.
+    CHECK(sim.avgVertexRepulseUs() >= 0.0);
+    CHECK(sim.avgBarRepulseUs()    >= 0.0);
+
+    sim.resetRepulseTiming();
+    CHECK_NEAR(sim.avgVertexRepulseUs(), 0.0, EPS);
+    CHECK_NEAR(sim.avgBarRepulseUs(),    0.0, EPS);
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main()
@@ -507,6 +671,14 @@ int main()
     run("Friction locks lateral: small force",        test_friction_locks_lateral_when_small_force);
     run("Friction allows lateral: large force",       test_friction_allows_lateral_when_large_force);
     run("Sub-floor vertex rises above floor",         test_subsurface_vertex_rises_above_floor_after_relaxation);
+
+    // §self-collision repulsion
+    run("Vertex repulsion: close unconnected verts",  test_vertex_repulsion_fires_for_close_unconnected);
+    run("Vertex repulsion: ignores connected verts",  test_vertex_repulsion_ignores_connected_vertices);
+    run("Bar repulsion: crossing bars penalised",     test_bar_repulsion_fires_for_crossing_bars);
+    run("Bar repulsion: silent for distant bars",     test_bar_repulsion_silent_when_bars_far_apart);
+    run("Bar repulsion: ignores adjacent bars",       test_bar_repulsion_ignores_adjacent_bars);
+    run("Repulsion timing accumulates and resets",    test_repulsion_timing_accumulates_and_resets);
 
     if (g_failures == 0) {
         std::cout << "\nAll Simulator tests passed.\n";

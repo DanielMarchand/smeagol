@@ -56,6 +56,13 @@ public:
 
     [[nodiscard]] bool isOpen() const { return m_open; }
 
+    // ── Render geometry (set before the first frame) ──────────────────────
+    /// Visual sphere radius for vertices [m].  Set to repulse_vertex_min_dist/2
+    /// so surfaces visually touch at the repulsion threshold.
+    float render_vertex_radius = 0.010f;
+    /// Visual cylinder radius for bars [m].  Set to repulse_bar_min_dist/2.
+    float render_bar_radius    = 0.010f;
+
     // ── Camera control ────────────────────────────────────────────────────
 
     /**
@@ -114,14 +121,14 @@ protected:
      * stand out from the structural frame.
      *
      * @param robot          The robot to draw.
-     * @param vertex_radius  Visual sphere radius [m].
      * @param vertex_color   Colour for vertex spheres.
      * @param bar_color      Unused (kept for API compatibility).
+     *
+     * Bar and vertex radii are taken from render_bar_radius / render_vertex_radius.
      */
-    void drawRobot(const Robot&  robot,
-                   float         vertex_radius = 0.012f,
-                   Color         vertex_color  = SKYBLUE,
-                   Color         bar_color     = LIGHTGRAY);
+    void drawRobot(const Robot& robot,
+                   Color        vertex_color = SKYBLUE,
+                   Color        bar_color    = LIGHTGRAY);
 
     /**
      * Draw a neural-network overlay above the robot.

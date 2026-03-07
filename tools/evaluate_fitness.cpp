@@ -9,9 +9,8 @@
  *   evaluate_fitness <robot.yaml> [params.yaml]
  *
  * params.yaml (all fields optional, shown with defaults):
- *   steps_per_cycle: 5000    # relaxation steps per neural tick
- *   steps_per_frame: 5000    # relaxation steps between video frames (default = steps_per_cycle)
- *   num_frames:      12      # total number of video frames to produce
+ *   steps_per_frame: 5000    # relaxation steps per frame = neural tick interval
+ *   num_frames:      12      # total number of frames (neural ticks) to run
  *   step_size:       1.0e-7
  *   fps:             10
  *   width:           640
@@ -19,11 +18,10 @@
  *   output:          ""      # leave empty to skip video
  *
  * Derived internally:
- *   total_steps = num_frames * steps_per_frame
- *   cycles      = ceil(total_steps / steps_per_cycle)  (for fitness evaluator)
+ *   total_steps = num_frames × steps_per_frame
  *
  * Environment:
- *   CI_NUMFRAMES  – if set, overrides cycles (keeps CI runs fast)
+ *   CI_NUMFRAMES  – if set, overrides num_frames (keeps CI runs fast)
  */
 
 #include "Robot.h"
@@ -64,13 +62,12 @@ int main(int argc, char* argv[])
     int         fps             = 10;
     int         width           = 640;
     int         height          = 480;
-    int         num_frames      = 12;
-    int         steps_per_frame = -1;  // -1 → same as steps_per_cycle
     std::string out_path;
 
     if (!params_path.empty()) {
         try {
             YAML::Node cfg = YAML::LoadFile(params_path);
+            if (cfg["steps_per_frame"]) fp.steps_per_frame = cfg["steps_per_frame"].as<int>();
             if (cfg["steps_per_cycle"]) fp.steps_per_cycle = cfg["steps_per_cycle"].as<int>();
             if (cfg["step_size"])       fp.step_size       = cfg["step_size"].as<double>();
             if (cfg["wind"])            fp.wind            = cfg["wind"].as<double>();
@@ -78,38 +75,43 @@ int main(int argc, char* argv[])
             if (cfg["width"])           width              = cfg["width"].as<int>();
             if (cfg["height"])          height             = cfg["height"].as<int>();
             if (cfg["output"])          out_path           = cfg["output"].as<std::string>();
-            if (cfg["num_frames"])      num_frames         = cfg["num_frames"].as<int>();
-            if (cfg["steps_per_frame"]) steps_per_frame    = cfg["steps_per_frame"].as<int>();
+            if (cfg["delay_steps"])     fp.delay_steps     = cfg["delay_steps"].as<int>();
+            if (cfg["num_steps"]) {
+                fp.num_steps = cfg["num_steps"].as<int>();
+            } else {
+                int _legacy_nf = -1;
+                if (cfg["num_frames"]) _legacy_nf = cfg["num_frames"].as<int>();
+                if (_legacy_nf >= 0) {
+                    const int _spc = (fp.steps_per_cycle > 0) ? fp.steps_per_cycle : fp.steps_per_frame;
+                    fp.num_steps = _legacy_nf * _spc;
+                }
+            }
         } catch (const std::exception& e) {
             std::cerr << "Error loading params: " << e.what() << "\n";
             return 1;
         }
     }
 
-    if (steps_per_frame <= 0)
-        steps_per_frame = fp.steps_per_cycle;
-
-    // Derive cycle count so the fitness evaluator covers the same total simulation time
-    const int total_steps = num_frames * steps_per_frame;
-    fp.cycles = std::max(1, (total_steps + fp.steps_per_cycle - 1) / fp.steps_per_cycle);
-
     // CI override
-    if (const char* ci = std::getenv("CI_NUMFRAMES"))
-        fp.cycles = std::stoi(ci);
+    if (const char* ci = std::getenv("CI_NUMSTEPS"))
+        fp.num_steps = std::stoi(ci);
+    // Legacy CI env var
+    if (const char* ci = std::getenv("CI_NUMFRAMES")) {
+        const int _spc = (fp.steps_per_cycle > 0) ? fp.steps_per_cycle : fp.steps_per_frame;
+        fp.num_steps = std::stoi(ci) * _spc;
+    }
 
-    // ── Single-pass simulation: fitness tracking + optional video ─────────
-    //
-    // Previously two separate passes were used: one silent FitnessEvaluator
-    // run followed by a video-rendering run.  This combined loop does both in
-    // one pass, cutting total physics work in half and giving continuous
-    // per-cycle (or per-frame) progress output throughout.
+    const int spc         = (fp.steps_per_cycle > 0) ? fp.steps_per_cycle : fp.steps_per_frame;
+    const int spf         = fp.steps_per_frame;
+    const int total_steps = fp.num_steps;
+
     std::cout << "Robot:  " << robot_path
               << "  (" << robot.vertices.size() << "v, "
               << robot.bars.size() << "b, "
               << robot.neurons.size() << "n)\n"
-              << "Params: num_frames=" << num_frames
-              << "  steps_per_frame=" << steps_per_frame
-              << "  steps_per_cycle=" << fp.steps_per_cycle
+              << "Params: num_steps=" << fp.num_steps
+              << "  steps_per_cycle=" << spc
+              << "  steps_per_frame=" << spf
               << "  step_size=" << fp.step_size << "\n\n";
 
     // Mass-weighted CoM in XY from the current Simulator state.
@@ -121,8 +123,7 @@ int main(int argc, char* argv[])
         return {cx, cy};
     };
 
-    Simulator sim(robot);
-    sim.wind = fp.wind;
+    Simulator sim = FitnessEvaluator::makeSimulator(robot, fp);
 
     // Open video renderer once at the start (avoids a second simulator run).
     const bool make_video = !out_path.empty();
@@ -136,73 +137,59 @@ int main(int argc, char* argv[])
 
     const Eigen::Vector2d start = com_xy(sim);
     std::vector<Eigen::Vector2d> traj;
-    traj.reserve(fp.cycles + 1);
+    traj.reserve(fp.num_steps / spc + 2);
     traj.push_back(start);
 
-    // Print t=0 status line in whichever style suits the run mode.
     if (make_video) {
         std::cout << std::scientific << std::setprecision(4)
                   << "  [frame  0 / cycle  0]  elastic=" << sim.elasticEnergy()
                   << " J  total=" << sim.totalEnergy() << " J\n";
     } else {
         std::cout << std::fixed << std::setprecision(4)
-                  << "  [cycle   0 / " << fp.cycles
+                  << "  [cycle   0 / " << (fp.num_steps / spc)
                   << "]  CoM=(" << start.x() << ", " << start.y() << ")\n";
     }
     std::cout.flush();
 
-    const int spf           = steps_per_frame;
-    int       global_step   = 0;
-    int       steps_to_tick = fp.steps_per_cycle;
-    int       frame_idx     = 0;
-    int       cycle_idx     = 0;
-    double    max_elastic   = sim.elasticEnergy();
+    int    frame_idx     = 0;
+    int    total_so_far  = 0;
+    double max_elastic   = sim.elasticEnergy();
 
-    while (global_step < total_steps) {
-        // Advance to the nearest event boundary:
-        //   · video mode  → min(next frame edge, next neural tick, end)
-        //   · fitness-only → min(next neural tick, end)
-        const int chunk = make_video
-            ? std::min({spf - global_step % spf, steps_to_tick,
-                        total_steps - global_step})
-            : std::min(steps_to_tick, total_steps - global_step);
+    for (int cycle_idx = 0; cycle_idx < fp.num_steps / spc; ++cycle_idx) {
+        sim.tickNeural();
+        int remaining = spc;
+        while (remaining > 0) {
+            const int chunk = std::min(remaining, spf);
+            sim.applyActuators(chunk);
+            sim.relax(chunk, fp.step_size, 0.0, 0.0);
+            remaining    -= chunk;
+            total_so_far += chunk;
 
-        sim.relax(chunk, fp.step_size, 0.0, 0.0);
-        global_step   += chunk;
-        steps_to_tick -= chunk;
-
-        // ── Neural tick ───────────────────────────────────────────────────
-        if (steps_to_tick == 0) {
-            sim.tickNeural();
-            sim.applyActuators(fp.steps_per_cycle);
-            steps_to_tick = fp.steps_per_cycle;
-            ++cycle_idx;
-            traj.push_back(com_xy(sim));
-            if (!make_video) {
-                const auto& c = traj.back();
-                std::cout << std::fixed << std::setprecision(4)
-                          << "  [cycle " << std::setw(3) << cycle_idx
-                          << " / " << fp.cycles << "]  CoM=("
-                          << c.x() << ", " << c.y() << ")\n";
+            if (make_video) {
+                ++frame_idx;
+                const double E_el = sim.elasticEnergy();
+                max_elastic = std::max(max_elastic, E_el);
+                std::cout << std::scientific << std::setprecision(4)
+                          << "  [frame " << std::setw(3) << frame_idx
+                          << " / cycle " << std::setw(2) << (cycle_idx + 1)
+                          << "]  elastic=" << E_el
+                          << " J  total=" << sim.totalEnergy() << " J\n";
                 std::cout.flush();
+                sim.copyPositionsBack(robot);
+                vid->addFrame(robot,
+                              static_cast<double>(total_so_far) * fp.step_size,
+                              sim.activations_);
             }
         }
 
-        // ── Video frame capture ───────────────────────────────────────────
-        if (make_video && (global_step % spf == 0 || global_step == total_steps)) {
-            ++frame_idx;
-            const double E_el = sim.elasticEnergy();
-            max_elastic = std::max(max_elastic, E_el);
-            std::cout << std::scientific << std::setprecision(4)
-                      << "  [frame " << std::setw(2) << frame_idx
-                      << " / cycle " << std::setw(2) << cycle_idx
-                      << "]  elastic=" << E_el
-                      << " J  total=" << sim.totalEnergy() << " J\n";
+        traj.push_back(com_xy(sim));
+        if (!make_video) {
+            const auto& c = traj.back();
+            std::cout << std::fixed << std::setprecision(4)
+                      << "  [cycle " << std::setw(3) << (cycle_idx + 1)
+                      << " / " << (fp.num_steps / spc) << "]  CoM=("
+                      << c.x() << ", " << c.y() << ")\n";
             std::cout.flush();
-            sim.copyPositionsBack(robot);
-            vid->addFrame(robot,
-                          static_cast<double>(global_step) * fp.step_size,
-                          sim.activations_);
         }
     }
 
@@ -219,9 +206,10 @@ int main(int argc, char* argv[])
 
     if (make_video) {
         std::cout << "Max elastic energy: " << max_elastic << " J\n"
-                  << "Frames recorded: " << num_frames
-                  << "  (" << num_frames << " frames * " << spf
-                  << " steps_per_frame = " << total_steps << " total steps)\n";
+                  << "Frames recorded: " << frame_idx
+                  << "  (" << (fp.num_steps / spc) << " cycles * " << (spc / spf)
+                  << " frames/cycle * " << spf << " steps/frame = "
+                  << total_steps << " total steps)\n";
         vid->finish(out_path);
     }
     return 0;

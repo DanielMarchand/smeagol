@@ -7,9 +7,8 @@
 #
 # See run.sh for how this is consumed.
 
-# Total simulation time = num_frames * steps_per_frame * step_size seconds
-num_frames:      500
-steps_per_cycle: 100000
+# Total simulation time = num_steps * step_size seconds
+num_steps:       50000000  # 500 frames × spf=100000
 steps_per_frame: 100000
 step_size:       1.0e-7
 

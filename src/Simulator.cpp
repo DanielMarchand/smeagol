@@ -1,8 +1,10 @@
 #include "Simulator.h"
 
 #include <algorithm>
+#include <chrono>
 #include <random>
 #include <stdexcept>
+#include <unordered_set>
 
 // ── Construction ──────────────────────────────────────────────────────────────
 
@@ -82,7 +84,7 @@ double Simulator::gravitationalEnergy() const
 {
     // H_gravity = Σ m_j · g · h_j
     // positions.col(2) is the Z (height) column — one Eigen expression.
-    return Materials::g *
+    return gravity *
            (vertex_masses.array() * positions.col(2).array()).sum();
 }
 
@@ -94,7 +96,7 @@ double Simulator::collisionEnergy() const
     {
         const double z = positions(j, 2);
         if (z < 0.0)
-            H += Materials::k_floor * z * z;
+            H += k_floor * z * z;
     }
     return H;
 }
@@ -117,6 +119,142 @@ void Simulator::copyPositionsBack(Robot& robot) const
     {
         robot.vertices[i].pos =
             Eigen::Vector3d(positions(i, 0), positions(i, 1), positions(i, 2));
+    }
+}
+
+// ── Self-collision repulsion ────────────────────────────────────────────────────
+
+void Simulator::addVertexRepulsion(Eigen::MatrixX3d& grad) const
+{
+    const int N = static_cast<int>(positions.rows());
+    if (N < 2) return;
+
+    // Build set of connected vertex indices (skip connected pairs).
+    // Key: min(a,b)*N + max(a,b) — guaranteed unique for N < ~46000.
+    std::unordered_set<int> connected;
+    connected.reserve(robot_.bars.size() * 2);
+    for (const Bar& bar : robot_.bars) {
+        const int a = std::min(bar.v1, bar.v2);
+        const int b = std::max(bar.v1, bar.v2);
+        connected.insert(a * N + b);
+    }
+
+    const double r0 = repulse_vertex_min_dist;
+    const double k2 = 2.0 * k_repulse_vertex;  // factor from derivative of (r0-d)^2
+
+    for (int i = 0; i < N - 1; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            // Skip directly connected vertices.
+            if (connected.count(i * N + j)) continue;
+
+            const Eigen::Vector3d dp = positions.row(i) - positions.row(j);
+            const double d = dp.norm();
+            if (d >= r0 || d < 1e-14) continue;
+
+            // Penalty: H = k*(r0-d)^2,  ∂H/∂p_i = -k2*(r0-d) * dp/d
+            const double mag = k2 * (r0 - d) / d;
+            const Eigen::Vector3d g = mag * dp;
+            grad.row(i) -= g;  // pushes i away from j  (subtract → position update adds)
+            grad.row(j) += g;  // pushes j away from i
+        }
+    }
+}
+
+// Returns the closest-point parameters t, u ∈ [0,1] for two line segments
+// AB and CD, and the Euclidean distance between those closest points.
+static double segSegDist(const Eigen::Vector3d& A, const Eigen::Vector3d& B,
+                         const Eigen::Vector3d& C, const Eigen::Vector3d& D,
+                         double& t, double& u)
+{
+    const Eigen::Vector3d d1 = B - A;
+    const Eigen::Vector3d d2 = D - C;
+    const Eigen::Vector3d r  = A - C;
+    const double a  = d1.dot(d1);
+    const double e  = d2.dot(d2);
+    const double f  = d2.dot(r);
+
+    if (a < 1e-14 && e < 1e-14) { t = u = 0.0; return r.norm(); }
+    if (a < 1e-14) {
+        t = 0.0;
+        u = std::clamp(f / e, 0.0, 1.0);
+    } else {
+        const double c = d1.dot(r);
+        if (e < 1e-14) {
+            u = 0.0;
+            t = std::clamp(-c / a, 0.0, 1.0);
+        } else {
+            const double b     = d1.dot(d2);
+            const double denom = a * e - b * b;
+            if (std::abs(denom) > 1e-14)
+                t = std::clamp((b * f - c * e) / denom, 0.0, 1.0);
+            else
+                t = 0.0;  // parallel — arbitrary
+
+            u = (b * t + f) / e;
+            if (u < 0.0) {
+                u = 0.0;
+                t = std::clamp(-c / a, 0.0, 1.0);
+            } else if (u > 1.0) {
+                u = 1.0;
+                t = std::clamp((b - c) / a, 0.0, 1.0);
+            }
+        }
+    }
+    return ((A + t * d1) - (C + u * d2)).norm();
+}
+
+void Simulator::addBarRepulsion(Eigen::MatrixX3d& grad) const
+{
+    const int B = static_cast<int>(robot_.bars.size());
+    if (B < 2) return;
+
+    // Build adjacency set: bar pair (i,j) is adjacent if they share a vertex.
+    // Key: min(i,j)*B + max(i,j).
+    std::unordered_set<int> adjacent;
+    adjacent.reserve(B * 4);
+    for (int i = 0; i < B; ++i)
+        for (int j = i + 1; j < B; ++j) {
+            const Bar& bi = robot_.bars[i];
+            const Bar& bj = robot_.bars[j];
+            if (bi.v1 == bj.v1 || bi.v1 == bj.v2 ||
+                bi.v2 == bj.v1 || bi.v2 == bj.v2)
+                adjacent.insert(i * B + j);
+        }
+
+    const double r0 = repulse_bar_min_dist;
+    const double k2 = 2.0 * k_repulse_bar;
+
+    for (int i = 0; i < B - 1; ++i) {
+        for (int j = i + 1; j < B; ++j) {
+            if (adjacent.count(i * B + j)) continue;
+
+            const Bar& bi = robot_.bars[i];
+            const Bar& bj = robot_.bars[j];
+            const Eigen::Vector3d A = positions.row(bi.v1);
+            const Eigen::Vector3d Bv = positions.row(bi.v2);
+            const Eigen::Vector3d C = positions.row(bj.v1);
+            const Eigen::Vector3d Dv = positions.row(bj.v2);
+
+            double t, u;
+            const double d = segSegDist(A, Bv, C, Dv, t, u);
+            if (d >= r0 || d < 1e-14) continue;
+
+            // Closest points: P = A + t*(B-A),  Q = C + u*(D-C)
+            const Eigen::Vector3d P = A + t * (Bv - A);
+            const Eigen::Vector3d Q = C + u * (Dv - C);
+            const Eigen::Vector3d nhat = (P - Q) / d;  // unit vec from Q to P
+
+            // Gradient of H = k*(r0-d)^2 w.r.t. each endpoint:
+            //   dH/dA  = -k2*(r0-d)*(1-t)*nhat
+            //   dH/dBv = -k2*(r0-d)*t*nhat
+            //   dH/dC  = +k2*(r0-d)*(1-u)*nhat   (chain-rule sign flips)
+            //   dH/dDv = +k2*(r0-d)*u*nhat
+            const double factor = k2 * (r0 - d);
+            grad.row(bi.v1) -= factor * (1.0 - t) * nhat;
+            grad.row(bi.v2) -= factor * t          * nhat;
+            grad.row(bj.v1) += factor * (1.0 - u) * nhat;
+            grad.row(bj.v2) += factor * u          * nhat;
+        }
     }
 }
 
@@ -153,8 +291,8 @@ Eigen::MatrixX3d Simulator::computeGradient() const
     }
 
     // ── Gravitational contribution ───────────────────────────────────────────
-    // ∂H_gravity/∂p_j = [0, 0, m_j * g]  (only the z column)
-    grad.col(2) += Materials::g * vertex_masses;
+    // ∂H_gravity/∂p_j = [0, 0, m_j * gravity]  (only the z column)
+    grad.col(2) += gravity * vertex_masses;
 
     // ── Wind (optional) ──────────────────────────────────────────────────────
     // Constant acceleration in +X, same form as gravity but horizontal.
@@ -168,9 +306,28 @@ Eigen::MatrixX3d Simulator::computeGradient() const
     {
         const double z = positions(j, 2);
         if (z < 0.0)
-            grad(j, 2) += 2.0 * Materials::k_floor * z;
+            grad(j, 2) += 2.0 * k_floor * z;
+    }
+    // ── Self-collision repulsion terms (optional) ─────────────────────────
+    using Clock = std::chrono::high_resolution_clock;
+
+    if (k_repulse_vertex > 0.0) {
+        const auto t0 = Clock::now();
+        addVertexRepulsion(grad);
+        timing_vertex_repulse_ns_ +=
+            static_cast<double>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count());
     }
 
+    if (k_repulse_bar > 0.0) {
+        const auto t0 = Clock::now();
+        addBarRepulsion(grad);
+        timing_bar_repulse_ns_ +=
+            static_cast<double>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count());
+    }
+
+    ++timing_calls_;
     return grad;
 }
 
@@ -260,8 +417,6 @@ void Simulator::tickNeural()
 
 void Simulator::applyActuators(int steps_per_cycle)
 {
-    constexpr double MAX_EXTENSION = 0.01;  // 1 cm maximum extension
-
     const double inv_steps = (steps_per_cycle > 0)
                              ? 1.0 / static_cast<double>(steps_per_cycle)
                              : 1.0;
@@ -274,12 +429,15 @@ void Simulator::applyActuators(int steps_per_cycle)
         if (a.bar_idx    < 0 || a.bar_idx    >= static_cast<int>(rest_lengths_.size())) continue;
         if (a.neuron_idx < 0 || a.neuron_idx >= static_cast<int>(activations_.size())) continue;
 
-        // Extension-only: clamp to [0, MAX_EXTENSION]
-        const double extension = std::clamp(
+        // Per-cycle extension: how much the bar can lengthen this tick.
+        const double ext_this_cycle = std::clamp(
             activations_[a.neuron_idx] * a.bar_range,
-            0.0, MAX_EXTENSION);
+            0.0, actuator_max_per_cycle);
 
-        // Target is base length + extension (or base if neuron quiesces)
+        // Absolute cap: total deviation from rest length cannot exceed this.
+        const double extension = std::min(ext_this_cycle, actuator_max_total);
+
+        // Target is base length + extension (reverts to base when neuron quiesces)
         const double target = base_rest_lengths_[a.bar_idx] + extension;
         target_rest_lengths_[a.bar_idx] = target;
 
@@ -297,17 +455,18 @@ void Simulator::applyFriction(Eigen::MatrixX3d& grad) const
         if (z > 0.0) continue;   // not in contact
 
         // Normal force magnitude from floor penalty gradient
-        const double normal_force = 2.0 * Materials::k_floor * std::abs(z);
+        const double normal_force = 2.0 * k_floor * std::abs(z);
 
         // Lateral (x,y) net force magnitude
         const double lateral_force =
             std::sqrt(grad(j, 0) * grad(j, 0) + grad(j, 1) * grad(j, 1));
 
-        // Static friction: lock x,y if lateral force is below threshold
-        if (lateral_force <= mu_static * normal_force)
-        {
-            grad(j, 0) = 0.0;
-            grad(j, 1) = 0.0;
-        }
+        // Kinetic friction: reduce lateral gradient by mu*N, clamped to zero.
+        // This always provides resistance but never reverses direction of motion.
+        const double friction_limit = mu_static * normal_force;
+        const double reduced = std::max(0.0, lateral_force - friction_limit);
+        const double scale   = (lateral_force > 1e-14) ? (reduced / lateral_force) : 0.0;
+        grad(j, 0) *= scale;
+        grad(j, 1) *= scale;
     }
 }

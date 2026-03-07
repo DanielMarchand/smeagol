@@ -3,8 +3,8 @@ max_evaluations: 100000
 seed: 42
 
 fitness:
-  cycles: 12
-  steps_per_cycle: 5000
+  num_steps: 60000  # 12 ticks × spf=5000
+  steps_per_frame: 5000
   step_size: 1.0e-7
   wind: 0.0
 

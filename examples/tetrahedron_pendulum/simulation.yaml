@@ -1,0 +1,35 @@
+# simulation.yaml – tetrahedron pendulum physics test
+#
+# 120 frames at 30 fps = 4 seconds.  DebugActuator runs at 1 Hz → 4 cycles.
+
+fps:             30
+num_steps:       120000000  # 120 frames × spf=1000000
+steps_per_frame: 1000000
+step_size:       1.0e-4
+
+width:  640
+height: 480
+
+output: /tmp/tetrahedron_pendulum.mp4
+
+# ── Physics knobs ─────────────────────────────────────────────────────────────
+#
+# gravity [m/s²]  — set higher to amplify gravitational effect on free vertices
+#                   (the quasi-static model needs gravity >> elastic forces to
+#                    make a free bar end actually droop/swing)
+gravity: 9.81
+
+# bar_stiffness [N/m]  — overrides ALL bars in robot.yaml
+#   50000  = default (evolver-tuned, elastic force >> gravity → no droop)
+#   500    = much softer (gravity ≈ elastic at small displacements → some droop)
+#   50     = very soft  (gravity >> elastic → free end hangs visibly)
+bar_stiffness: 500
+
+# k_floor [N/m]  — floor spring stiffness (keep >= bar_stiffness to avoid sinking)
+k_floor: 1000
+
+# mu_static  — Coulomb friction coefficient (0 = frictionless, 1 = high grip)
+mu_static: 0.5
+
+# wind [m/s²]  — horizontal acceleration in +X direction (0 = no wind)
+wind: 0.0

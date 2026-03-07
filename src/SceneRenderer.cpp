@@ -142,29 +142,71 @@ void SceneRenderer::runInteractive(const Robot& robot, int floor_slices)
     closeWindow();
 }
 
+// ── Per-bar colour helpers ────────────────────────────────────────────────────
+// Both use a Knuth multiplicative hash so each bar index maps to a distinct,
+// deterministic colour that is consistent across every frame of a video.
+//
+// Hues deliberately avoided:
+//   • ~200-250° blue  → neural firing/synapse overlay  {50,120,255} / {80,140,255}
+//   • ~100-160° green → CoM trail                      {60,200,80}
+//   • ~0° near-grey   → inactive synapse wires         {100,100,100}
+
+static Color structuralBarColor(int idx)
+{
+    // Dark, muted warm/cool colours (L≈25–45).
+    static const Color palette[] = {
+        { 110,  35,  30, 255 },  // dark crimson
+        { 120,  55,  15, 255 },  // dark amber-brown
+        {  80,  20,  75, 255 },  // dark plum
+        { 100,  60,  20, 255 },  // dark sienna
+        {  90,  20,  50, 255 },  // dark wine-magenta
+        {  70,  25,  85, 255 },  // dark purple
+        { 115,  40,  25, 255 },  // dark terracotta
+        {  85,  55,  12, 255 },  // dark umber (warm, not green)
+        {  95,  15,  60, 255 },  // dark claret
+        { 105,  35,  90, 255 },  // dark violet
+        {  75,  40,  10, 255 },  // dark brown
+        { 100,  18,  32, 255 },  // dark ruby
+        {  65,  50,  72, 255 },  // dark muted mauve
+        { 115,  62,  30, 255 },  // dark copper
+        {  80,  14,  42, 255 },  // dark maroon
+        {  92,  65,  22, 255 },  // dark gold-brown
+    };
+    static constexpr int N = static_cast<int>(sizeof(palette)/sizeof(palette[0]));
+    return palette[(static_cast<uint32_t>(idx) * 2654435761u) % static_cast<uint32_t>(N)];
+}
+
+static Color actuatorBrightColor(int idx)
+{
+    // Vivid, high-saturation colours for actuated bars (L≈55–80).
+    // Kept away from neural blues and trail greens.
+    static const Color palette[] = {
+        { 255,  88,  10, 255 },  // vivid orange
+        { 255,  38,  52, 255 },  // neon red
+        { 255, 172,   0, 255 },  // vivid amber
+        { 255,  28, 165, 255 },  // hot magenta
+        { 255, 122,   0, 255 },  // bright tangerine
+        { 255,  58,  88, 255 },  // vivid coral-red
+        { 238, 255,   0, 255 },  // electric yellow
+        { 255,  48, 215, 255 },  // bright pink-magenta
+        { 255, 202,  10, 255 },  // vivid gold
+        { 228,  28,  28, 255 },  // pure red
+        { 255, 142,  18, 255 },  // warm orange
+        { 255,  78, 142, 255 },  // hot pink
+        { 255, 212,  38, 255 },  // bright yellow
+        { 198,   0, 255, 255 },  // electric purple
+        { 255,  28, 102, 255 },  // vivid rose
+        {   0, 228, 222, 255 },  // electric cyan (≠ neural blue {80,140,255})
+    };
+    static constexpr int N = static_cast<int>(sizeof(palette)/sizeof(palette[0]));
+    return palette[(static_cast<uint32_t>(idx) * 2654435761u) % static_cast<uint32_t>(N)];
+}
+
 void SceneRenderer::drawRobot(const Robot& robot,
-                              float vertex_radius,
                               Color vertex_color,
                               Color /*bar_color*/)
 {
-    // ── Muted palette for structural bars (cycles by bar index) ──────────
-    // Chosen to be clearly distinct from the neural-overlay colours
-    // (blue synapse lines, red inhibitory, bright-green actuator lines,
-    //  red/grey neuron spheres, gold CoM trail).
-    static const Color bar_palette[] = {
-        { 180, 200, 210, 255 },  // dusty blue
-        { 200, 195, 175, 255 },  // warm tan
-        { 175, 200, 185, 255 },  // sage
-        { 200, 175, 195, 255 },  // dusty mauve
-        { 210, 200, 165, 255 },  // khaki
-        { 175, 210, 200, 255 },  // steel teal
-    };
-    static constexpr int PALETTE_SIZE = 6;
-
-    // Amber for actuated bars — warm, high-contrast against structural palette.
-    static const Color actuator_color = { 255, 165, 45, 255 };
-
-    // Build set of actuated bar indices so the lookup is O(1).
+    // Build set of actuated bar indices for O(1) lookup.
     std::unordered_set<int> actuated;
     actuated.reserve(robot.actuators.size());
     for (const auto& a : robot.actuators)
@@ -182,20 +224,24 @@ void SceneRenderer::drawRobot(const Robot& robot,
         Vector3 rp1 = toRaylib(p1.x(), p1.y(), p1.z());
         Vector3 rp2 = toRaylib(p2.x(), p2.y(), p2.z());
 
-        const Color color = actuated.count(bi)
-            ? actuator_color
-            : bar_palette[bi % PALETTE_SIZE];
-
-        DrawCylinderEx(rp1, rp2,
-                       Materials::VISUAL_RADIUS,
-                       Materials::VISUAL_RADIUS,
-                       8, color);
+        if (actuated.count(bi)) {
+            DrawCylinderEx(rp1, rp2,
+                           render_bar_radius,
+                           render_bar_radius,
+                           8, actuatorBrightColor(bi));
+        } else {
+            // ── Structural bar: single dark muted cylinder ────────────────
+            DrawCylinderEx(rp1, rp2,
+                           render_bar_radius,
+                           render_bar_radius,
+                           8, structuralBarColor(bi));
+        }
     }
 
     // ── vertices (drawn on top of bars) ───────────────────────────────────
     for (const auto& vertex : robot.vertices) {
         Vector3 rp = toRaylib(vertex.pos.x(), vertex.pos.y(), vertex.pos.z());
-        DrawSphere(rp, vertex_radius, vertex_color);
+        DrawSphere(rp, render_vertex_radius, vertex_color);
     }
 }
 
@@ -222,7 +268,14 @@ void SceneRenderer::drawNeuralOverlay(const Robot&               robot,
         npos[i] = toRaylib(nx, ny, nz);
     }
 
+    // Pre-compute per-neuron active flag for wire colouring.
+    auto is_active = [&](int idx) -> bool {
+        return idx >= 0 && idx < static_cast<int>(activations.size())
+               && activations[idx] > 0.5;
+    };
+
     // ── Synapse connections (draw first so spheres sit on top) ────────────
+    // Wire colour: blue if the source neuron is firing, grey if silent.
     for (int i = 0; i < N; ++i)
     {
         const Eigen::VectorXd& w = robot.neurons[i].synapse_weights;
@@ -230,14 +283,15 @@ void SceneRenderer::drawNeuralOverlay(const Robot&               robot,
         for (int j = 0; j < N && j < sw; ++j)
         {
             if (std::abs(w(j)) < 0.01) continue;
-            Color c = (w(j) > 0.0)
-                ? Color{100, 149, 237, 200}   // cornflower blue  = excitatory
-                : Color{220,  70,  70, 200};  // soft red         = inhibitory
+            const Color c = is_active(i)
+                ? Color{ 80, 140, 255, 220}   // blue  = source neuron firing
+                : Color{100, 100, 100, 160};  // grey  = source neuron silent
             DrawLine3D(npos[i], npos[j], c);
         }
     }
 
     // ── Actuator connections: neuron sphere → bar midpoint ────────────────
+    // Wire colour: blue if the driving neuron is firing, grey if silent.
     for (const auto& a : robot.actuators)
     {
         if (a.neuron_idx < 0 || a.neuron_idx >= N) continue;
@@ -246,18 +300,20 @@ void SceneRenderer::drawNeuralOverlay(const Robot&               robot,
         const Bar& bar = robot.bars[a.bar_idx];
         const Eigen::Vector3d mid =
             0.5 * (robot.vertices[bar.v1].pos + robot.vertices[bar.v2].pos);
+        const Color wire_c = is_active(a.neuron_idx)
+            ? Color{ 80, 140, 255, 220}   // blue = active
+            : Color{100, 100, 100, 160};  // grey = silent
         DrawLine3D(npos[a.neuron_idx],
                    toRaylib(mid.x(), mid.y(), mid.z()),
-                   Color{50, 220, 50, 220});   // bright green
+                   wire_c);
     }
 
     // ── Neuron spheres (drawn last → on top of all lines) ─────────────────
     for (int i = 0; i < N; ++i)
     {
-        const bool active = (i < static_cast<int>(activations.size()))
-                            && (activations[i] > 0.5);
+        const bool active = is_active(i);
         const Color c = active
-            ? Color{255,  50,  50, 255}   // bright red  = firing
+            ? Color{ 50, 120, 255, 255}   // bright blue = firing
             : Color{ 70,  70,  70, 255};  // dark grey   = silent
         DrawSphere(npos[i], 0.016f, c);
     }
@@ -271,44 +327,13 @@ void SceneRenderer::drawComTrail(const std::vector<Eigen::Vector3d>& trail)
 
     const int n = static_cast<int>(trail.size());
 
-    // Draw line segments connecting consecutive CoM positions.
-    // Colour transitions from dark grey (oldest) to gold (newest).
+    // Thin green line trail — no spheres.
+    const Color trail_color = { 60, 200, 80, 180 };  // muted green
     for (int i = 1; i < n; ++i)
     {
-        const float t = static_cast<float>(i) / static_cast<float>(n);
-        const Color c = {
-            static_cast<unsigned char>(80  + static_cast<int>(175 * t)),   // R: 80→255
-            static_cast<unsigned char>(80  + static_cast<int>( 90 * t)),   // G: 80→170
-            static_cast<unsigned char>(static_cast<int>(80 * (1.0f - t))), // B: 80→0
-            static_cast<unsigned char>(100 + static_cast<int>(155 * t))    // A: 100→255
-        };
         DrawLine3D(
             toRaylib(trail[i-1].x(), trail[i-1].y(), trail[i-1].z()),
             toRaylib(trail[i  ].x(), trail[i  ].y(), trail[i  ].z()),
-            c);
-    }
-
-    // Draw a small sphere at each past CoM; brightest/largest at the current end.
-    for (int i = 0; i < n; ++i)
-    {
-        const float t = static_cast<float>(i) / static_cast<float>(n);
-        const Vector3 pos = toRaylib(trail[i].x(), trail[i].y(), trail[i].z());
-
-        if (i == n - 1)
-        {
-            // Current CoM — bright green, slightly larger
-            DrawSphere(pos, 0.013f, Color{50, 255, 80, 255});
-        }
-        else
-        {
-            const float r = 0.005f + 0.004f * t;   // 5mm → 9mm as trail ages
-            const Color c = {
-                static_cast<unsigned char>(80  + static_cast<int>(175 * t)),
-                static_cast<unsigned char>(80  + static_cast<int>( 90 * t)),
-                static_cast<unsigned char>(static_cast<int>(80 * (1.0f - t))),
-                static_cast<unsigned char>(80  + static_cast<int>(155 * t))
-            };
-            DrawSphere(pos, r, c);
-        }
+            trail_color);
     }
 }

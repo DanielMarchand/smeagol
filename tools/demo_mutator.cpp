@@ -31,15 +31,21 @@ namespace fs = std::filesystem;
 
 static void apply_op(const std::string& op, Robot& r, std::mt19937& rng)
 {
-    if      (op == "perturb")    Mutator::perturbElement(r, rng);
-    else if (op == "add_remove") Mutator::addRemoveElement(r, rng);
-    else if (op == "split")      Mutator::splitElement(r, rng);
-    else if (op == "attach")     Mutator::attachDetach(r, rng);
-    else if (op == "rewire")     Mutator::rewireNeuron(r, rng);
-    else if (op == "all")        Mutator::mutate(r, rng);
+    if      (op == "perturb")         Mutator::perturbElement(r, rng);
+    else if (op == "add_bar_new")     Mutator::addBarNew(r, rng);
+    else if (op == "add_bar_bridge")  Mutator::addBarBridge(r, rng);
+    else if (op == "add_neuron")      Mutator::addNeuron(r, rng);
+    else if (op == "remove_bar")      Mutator::removeBar(r, rng);
+    else if (op == "remove_neuron")   Mutator::removeNeuron(r, rng);
+    else if (op == "add_remove")      Mutator::mutate(r, rng);  // legacy alias
+    else if (op == "split")           Mutator::splitElement(r, rng);
+    else if (op == "attach")          Mutator::attachNeuron(r, rng);
+    else if (op == "detach")          Mutator::detachNeuron(r, rng);
+    else if (op == "rewire")          Mutator::rewireNeuron(r, rng);
+    else if (op == "all")             Mutator::mutate(r, rng);
     else {
         std::cerr << "Unknown op '" << op
-                  << "'. Valid: perturb | add_remove | split | attach | rewire | all\n";
+                  << "'. Valid: perturb | add_bar_new | add_bar_bridge | add_neuron | remove_bar | remove_neuron | split | attach | rewire | all\n";
         std::exit(1);
     }
 }

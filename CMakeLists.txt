@@ -75,3 +75,6 @@ target_link_libraries(demo_mutator PRIVATE smeagol_core)
 
 add_executable(evolve tools/evolve.cpp)
 target_link_libraries(evolve PRIVATE smeagol_core)
+
+add_executable(drift_robot tools/drift_robot.cpp)
+target_link_libraries(drift_robot PRIVATE smeagol_core)

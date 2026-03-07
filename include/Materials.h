@@ -36,6 +36,7 @@ namespace Materials
     /// for any topology the evolver can produce.
     inline constexpr double k_default = 50'000.0;
 
-    /// Visual rendering radius for bars [m].  Purely cosmetic; no physics effect.
-    inline constexpr float VISUAL_RADIUS = 0.006f;
+    // Note: visual bar/vertex radii are stored as render_bar_radius /
+    // render_vertex_radius on SceneRenderer and set from FitnessParams at
+    // call sites — see SceneRenderer.h.
 }

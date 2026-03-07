@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstddef>
 #include <limits>
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -114,8 +115,60 @@ public:
      * Actuator bar/neuron indices) are in-bounds, and every vertex is
      * the endpoint of at least one bar (exception: a single-vertex,
      * zero-bar robot is valid).
+     *
+     * Also checks graph connectivity: the bar network must form a single
+     * connected component.  A robot with two disjoint subgraphs (e.g. two
+     * separate clusters of bars with no bar joining them) fails this check.
      */
     [[nodiscard]] bool isValid() const;
+
+    /**
+     * Returns true iff the bar graph forms a single connected component.
+     *
+     * Uses a BFS flood-fill from vertex 0.  Robots with 0 or 1 vertex are
+     * trivially connected.  Robots with vertices but no bars are disconnected
+     * unless there is exactly one vertex.
+     *
+     * Complexity: O(V + E) where V = vertices.size(), E = bars.size().
+     */
+    [[nodiscard]] bool isConnected() const;
+
+    /**
+     * Runs the neural network in isolation (no physics) to determine whether
+     * any actuator-driving neuron ever changes its output within the probe
+     * window.
+     *
+     * Algorithm
+     * ---------
+     * 1. Initialise activations from each Neuron::activation field.
+     * 2. Tick the network @p delay_cycles times (mirrors the physics warm-up
+     *    period; output is ignored).
+     * 3. Record the current output of every actuator-driving neuron.
+     * 4. Tick for @p probe_cycles more cycles; return true as soon as any
+     *    actuator-driving neuron's output differs from the snapshot.
+     * 5. If no delta is seen, return false (the network is "dead" — stuck in
+     *    a fixed point and incapable of driving movement).
+     *
+     * A delta check rather than a "fires at all" check catches the
+     * permanently-ON case (constant output → no oscillation → no locomotion).
+     *
+     * @param delay_cycles  Neural ticks to skip before watching (default 5).
+     * @param probe_cycles  Neural ticks to watch for output changes (default 10).
+     * @return true if at least one actuator-driving neuron changes state.
+     */
+    [[nodiscard]] bool probeNeuralActivity(int delay_cycles = 5,
+                                           int probe_cycles = 10) const;
+
+    /// Returns true if this robot provably cannot produce locomotion.
+    ///
+    /// Fast structural check: no actuators → bars never change.
+    /// Dynamic check: probeNeuralActivity() → all actuator-driving neurons
+    /// are stuck in a fixed point (permanently on or off), so no oscillation
+    /// can drive movement.  Both cases give fitness 0.
+    [[nodiscard]] bool isNonMover() const
+    {
+        return actuators.empty() || !probeNeuralActivity();
+    }
 
     /**
      * Remove any vertex that is not referenced by any bar.

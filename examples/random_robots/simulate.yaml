@@ -3,10 +3,10 @@
 # Used by evaluate_fitness to simulate and record each generated robot.
 # run.sh derives a per-robot output path from the 'output' field below.
 #
-# Total simulation time = num_frames * steps_per_frame * step_size  seconds
-# Neural tick period    = steps_per_cycle * step_size  seconds
+# Total simulation time = num_steps * step_size seconds
+# Neural tick interval = steps_per_frame * step_size  seconds
 
-steps_per_cycle: 16666666  #25000   # 12 cycles for the entire simulation (60*5000/25000 = 12) 
+steps_per_frame: 16666666  # one neural tick per frame 
                 
 #fps:             10
 #num_frames:      60
@@ -14,7 +14,7 @@ steps_per_cycle: 16666666  #25000   # 12 cycles for the entire simulation (60*50
 #step_size:       1.0e-6
 
 fps:             30
-num_frames:      100 # 200
+num_steps:       200000000  # 100 frames × spf=2000000
 steps_per_frame: 2000000 # 10000
 step_size:       1.0e-6 #1e-7
 

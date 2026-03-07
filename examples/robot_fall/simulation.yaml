@@ -1,7 +1,7 @@
 # simulation.yaml – parameters for run_simulation
 
 fps:             30
-num_frames:      50 # 200
+num_steps:       25000000  # 50 frames × spf=500000
 steps_per_frame: 500000 # 10000
 step_size:       1.0e-7 #1e-7
 

@@ -1,0 +1,102 @@
+# drift.yaml — drift_robot configuration
+#
+# Usage (from repo root):
+#   build/drift_robot examples/drift_robot/drift.yaml
+#
+# Purpose:
+#   Runs N mutation steps on a single robot WITHOUT any fitness evaluation.
+#   Cheap (seconds per run) — use this to sanity-check mutation parameters
+#   before launching a slow full evolution run.
+#
+# Output lands in:  examples/drift_robot/output/
+#   step_<N>.yaml     intermediate snapshots (every snapshot_every steps)
+#   robot_final.yaml  the robot at the end of the walk
+#   final.mp4         fitness simulation of the final robot (if evaluate_final)
+
+# ── Walk settings ─────────────────────────────────────────────────────────────
+
+steps:          0 #50     # number of mutation steps (no fitness eval each step)
+seed:           41      # RNG seed
+snapshot_every: 50      # save robot YAML every N steps (0 = no snapshots)
+evaluate_final: true    # run fitness eval + record video on the final robot
+max_rerolls:    100     # retries when a mutation produces an invalid robot
+output_dir:     output  # relative to this file's directory
+
+# ── Starting robot ─────────────────────────────────────────────────────────────
+#
+# Option A: generate a fresh random robot  →  fill in the `robot:` block below.
+# Option B: load an existing robot YAML    →  uncomment `start_yaml` instead.
+#
+#start_yaml: './robot_0.yaml'
+start_yaml: '../tetrahedron_pendulum/robot.yaml'  # use the pendulum's starting robot as a sanity check for mutation parameters
+
+
+#robot:
+#  min_vertices:  4
+#  max_vertices:  8
+#  bbox_xy:       0.05
+#  bbox_z_min:    0.03
+#  bbox_z_max:    0.10
+#  stiffness_min: 10000
+#  stiffness_max: 100000
+#  p_extra_bar:   0.3
+#  min_neurons:   2
+#  max_neurons:   6
+#  threshold_min: 0.0
+#  threshold_max: 1.0
+#  weight_range:  1.0
+#  p_actuate_bar: 0.4
+#  bar_range_max: 0.04
+
+# ── Mutation — mirrors prod/config.yaml exactly ───────────────────────────────
+
+mutation:
+  p_perturb:    0.10
+  p_add_remove: 0.01
+  p_split:      0.03
+  p_attach:     0.03
+  p_rewire:     0.00
+
+  perturb_bar_frac:      0.10
+  perturb_threshold_mag: 0.50
+  perturb_weight_mag:    0.50
+
+  bar_length_min: 0.03 #0.02
+  bar_length_max: 0.3 #0.10
+  threshold_min:  0.00
+  threshold_max:  2.00
+
+  perturb_bar_grow_only_below: 0.03  # bars shorter than this only grow when perturbed
+  split_bar_min_length:         0.04  # bars shorter than this are never bisected
+  split_vertex_offset: 0.03
+  actuator_range_max:  0.04
+
+  new_synapse_weight_min: -1.00
+  new_synapse_weight_max:  1.00
+
+  new_bar_stiffness_min: 500 #10000    # stiffness range for bars created by mutations [N/m]
+  new_bar_stiffness_max: 500 #10000
+
+# ── Fitness — only used when evaluate_final: true ─────────────────────────────
+# Use a shorter run than prod so the final eval completes quickly.
+
+fitness:
+  num_steps:       120000000  # 120 neural ticks × spc=1000000
+  steps_per_cycle: 1000000  # physics steps per neural tick
+  steps_per_frame: 1000000  # physics steps per video frame (1 frame per tick)
+  step_size:       1.0e-4
+  gravity:         9.81 #9.81       # gravitational acceleration [m/s²]
+  wind:            0.0
+  mu_static:       0.5        # kinetic friction coefficient
+  k_floor:         1000    # floor spring stiffness [N/m]
+  actuator_max_extension_per_cycle: 0.01   # max bar extension per neural tick [m]
+  actuator_max_extension_total:     0.04   # max total bar extension from base [m]
+  bar_stiffness_override: 500              # override all bar stiffnesses [N/m] — matches simulation.yaml
+
+# ── Video — only used when evaluate_final: true ───────────────────────────────
+
+video:
+  enabled:         true
+  fps:             30
+  verbose:         true   # suppress raylib INFO and ffmpeg output
+

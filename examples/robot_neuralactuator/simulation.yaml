@@ -8,12 +8,12 @@
 #   t=1s  neurons=[1,0]   bar 3 has just LENGTHENED  (+1 cm from contracted)
 #   t=2s  neurons=[0,1]   ...repeats
 #
-# With fps=10 and num_frames=60 you get a 6-second video showing 30 full
+# With fps=10 and num_steps=300000 (60 frames × spf=5000) you get a 6-second video showing 30 full
 # oscillation cycles.  steps_per_frame=5000 is plenty for a 4-vertex static
 # tetrahedron to relax between neural ticks.
 
 fps:             10
-num_frames:      60
+num_steps:       300000   # 60 frames × spf=5000
 steps_per_frame: 5000
 step_size:       1.0e-7
 

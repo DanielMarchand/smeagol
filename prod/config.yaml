@@ -1,22 +1,22 @@
 # To run:
 #   ./build/evolve prod/config.yaml
 #
-# Output lands in:  prod/runs/run_<timestamp>/
-# Mid-run best:     prod/runs/run_<timestamp>/checkpoint_latest.yaml
-# Final robot:      prod/runs/run_<timestamp>/best_robot_final.yaml
-# Resume:           add  resume: true  below and re-run the same command.
+# Output lands in:  <output_base_dir>/run_<timestamp>/
+# To resume a run:  set run_dir to the leaf name (e.g. run_20260306_000952)
+#                   and set resume: true  — full path = output_base_dir/run_dir
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
 population_size:  200
-max_evaluations:  10000
+max_evaluations:  100000
 seed:             0          # 0 = seed from std::random_device (different each run)
-output_base_dir:  prod/runs/ # timestamped run dirs are created here
+output_base_dir:  runs/ # timestamped run dirs are created here
+#run_dir:          run_20260306_000952  # leaf name only — full path = output_base_dir/run_dir
 record_min_improvement: 0.01  # new record must beat old by at least this many metres
-# resume:         true       # uncomment to continue from checkpoint_population.yaml
+resume:           false         # set run_dir above and resume: true to continue a run
 
 report_interval: 50
-periodic_video_interval: 50
+periodic_video_interval: 1000
 
 # ── Selection ─────────────────────────────────────────────────────────────────
 #
@@ -60,42 +60,87 @@ periodic_video_interval: 50
 # After that many failures it gives up and uses the parent unchanged.
 #
 selection:
-  scheme:      tournament
-  pressure:    20           # best of 20 random competitors
-  replacement: worst        # always evict the weakest individual
-  max_rerolls: 100
-
-fitness:
-  cycles:          12
-  #steps_per_cycle: 5000
-  steps_per_cycle: 15000000  
-  step_size:       1.0e-6
-  wind:            0.0
-  mu_static:       0.5        # static Coulomb friction coefficient
-
-video:
-  fps:             30
-  steps_per_frame: 2000000    # physics steps between captured frames
+  scheme:      proportionate 
+  pressure:    1.0          # best of 20 random competitors
+  replacement: uniform        # always evict the weakest individual
+  max_rerolls: 1000
 
 
 mutation:
-  p_perturb:    0.10
-  p_add_remove: 0.01
-  p_split:      0.03
-  p_attach:     0.03
-  p_rewire:     0.03
+  p_add_bar_new:      0.005  # Strategy A: dangle new vertex+bar off existing vertex
+  p_remove_bar:       0.005  # remove a random bar (connectivity-guarded)
+  p_add_bar_bridge:   0.010  # Strategy B: connect two existing unconnected vertices
+  p_remove_bar_edge:  0.010  # reverse of Strategy A: remove a leaf bar + leaf vertex
+  p_add_neuron:       0.005  # add a fully-connected neuron
+  p_remove_neuron:    0.005  # remove a random neuron
+  p_split_vertex:     0.03
+  p_join_vertex:      0.03
+  p_attach_neuron:    0.03   # attach a neuron to an unactuated bar
+  p_detach_neuron:    0.03   # detach all actuators from an actuated bar
+  p_rewire:           0.01
+  p_perturb:          0.10
+  num_method_retries: 1000     # per-method retry limit before whole mutation is cloned
 
   perturb_bar_frac:      0.10
   perturb_threshold_mag: 0.50
   perturb_weight_mag:    0.50
 
-  bar_length_min: 0.01
-  bar_length_max: 0.10
+  bar_length_min: 0.02 #0.02
+  bar_length_max: 0.5 #0.10
   threshold_min:  0.00
   threshold_max:  2.00
 
+  perturb_bar_grow_only_below: 0.03  # bars shorter than this only grow when perturbed
+  split_bar_min_length:         0.04  # bars shorter than this are never bisected
   split_vertex_offset: 0.02
-  actuator_range_max:  0.01
+  actuator_range_max:  0.04
 
   new_synapse_weight_min: -1.00
   new_synapse_weight_max:  1.00
+
+  new_bar_stiffness_min: 5    # stiffness range for bars created by mutations [N/m]
+  new_bar_stiffness_max: 5
+
+# ── Fitness — only used when evaluate_final: true ─────────────────────────────
+# Use a shorter run than prod so the final eval completes quickly.
+
+fitness:
+  num_steps:       5000000 
+  # Steps (out of num_steps) to use as a settling window before fitness is
+  # measured. Total physics run = num_steps; fitness measured over the last
+  # (num_steps - delay_steps). 0 = disabled (default).
+  delay_steps:     1000000   # e.g. 6 settling ticks × spc=1000000
+  steps_per_cycle: 50000  # physics steps per neural tick
+  steps_per_frame: 50000 # before was same as per cycle # physics steps per video frame (= old video.steps_per_frame)
+  step_size:       1.0e-2
+  gravity:         9.81        # gravitational acceleration [m/s²]
+  wind:            0.0
+  mu_static:       50 #0.5        # kinetic friction coefficient
+  k_floor:         10    # floor spring stiffness [N/m]
+  actuator_max_extension_per_cycle: 0.01   # max bar extension per neural tick [m]
+
+  # ── Self-collision repulsion ──────────────────────────────────────────────
+  # Both terms are disabled by default (k=0).  Set k > 0 to enable.
+  # The penalty is H = k*(r0 - d)^2 for any pair closer than r0.
+  #
+  # Vertex-vertex: penalises non-connected vertex pairs that come too close.
+  k_repulse_vertex:        10.0   # spring constant [N/m²].  0 = disabled.
+  repulse_vertex_min_dist: 0.02  # minimum separation before penalty kicks in [m]
+  #
+  # Bar-bar: penalises non-adjacent bar pairs whose closest-point distance
+  #          falls below the threshold (catches crossing / near-crossing bars).
+  k_repulse_bar:           10.0   # spring constant [N/m²].  0 = disabled.
+  repulse_bar_min_dist:    0.02  # minimum bar-to-bar clearance [m]
+
+# ── Video — only used when evaluate_final: true ───────────────────────────────
+
+
+
+
+video:
+  enabled:         true
+  fps:             10
+  width:           1280
+  height:          720 
+  verbose:         false   # suppress raylib INFO and ffmpeg output
+  min_fitness:     0.01    # skip MP4 render if best fitness is below this [m]

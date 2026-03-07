@@ -14,10 +14,12 @@
  */
 struct VideoParams
 {
-    bool enabled        = true;     ///< set false to skip PNG+MP4 (e.g. in unit tests)
-    int fps             = 30;       ///< output framerate passed to ffmpeg
-    int steps_per_frame = 2000000;  ///< physics steps between captured frames
-    bool verbose        = false;    ///< if false (default) suppress raylib INFO and ffmpeg output
+    bool   enabled     = true;     ///< set false to skip PNG+MP4 (e.g. in unit tests)
+    int    fps         = 30;       ///< output framerate passed to ffmpeg
+    int    width       = 1280;     ///< render width in pixels
+    int    height      = 720;      ///< render height in pixels
+    bool   verbose     = false;    ///< if false (default) suppress raylib INFO and ffmpeg output
+    double min_fitness = 0.01;     ///< skip MP4 render if best fitness is below this [m]
 };
 
 // ── SelectionParams ───────────────────────────────────────────────────────────
@@ -99,7 +101,6 @@ struct SelectionParams
  *   mu_static: 0.5           # static Coulomb friction coefficient
  * video:
  *   fps:             30
- *   steps_per_frame: 2000000
  * @endcode
  */
 struct EvolverParams
@@ -175,7 +176,7 @@ private:
     void evaluateOne(int idx);              ///< run fitness eval, update fitnesses_[idx]
     void maybeSaveSnapshot(int eval_num);   ///< write YAML+PNG+MP4 to checkpoints/ on new fitness record
     void maybeSavePeriodicVideo(int eval_num); ///< write checkpoints/periodic_eval_N.{yaml,mp4} every periodic_video_interval evals
-    void printSelectionReport(double mean); ///< print population/mutation stats to stdout
+    void printSelectionReport(double mean, double stddev); ///< print population/mutation stats to stdout
 
     /** Write checkpoint_population.yaml atomically with the current eval_count_. */
     void writePopulationCheckpoint();
@@ -193,10 +194,23 @@ private:
     double                  record_fitness_ = -1.0; ///< all-time best; snapshot fires on improvement
 
     // ── mutation operator counters (reset every report_interval) ──────────
-    int mc_perturb_    = 0;
-    int mc_add_remove_ = 0;
-    int mc_split_      = 0;
-    int mc_attach_     = 0;
-    int mc_rewire_     = 0;
-    int mc_forced_     = 0;
+    int mc_perturb_          = 0;
+    int mc_add_bar_new_      = 0;  ///< bars added via Strategy A (new vertex)
+    int mc_add_bar_bridge_   = 0;  ///< bars added via Strategy B (bridge)
+    int mc_add_neuron_          = 0;  ///< neurons added
+    int mc_remove_bar_         = 0;  ///< bars removed
+    int mc_remove_neuron_      = 0;  ///< neurons removed
+    int mc_remove_bar_edge_    = 0;  ///< leaf bars removed (reverse of add_bar_new)
+    int mc_remove_bar_bridge_  = 0;  ///< cycle bars removed (reverse of add_bar_bridge)
+    int mc_join_vertex_        = 0;  ///< degree-2 vertices merged (reverse of split)
+    int mc_split_vertex_       = 0;
+    int mc_attach_neuron_      = 0;
+    int mc_detach_neuron_      = 0;
+    int mc_rewire_             = 0;
+    int mc_stoch_rounds_       = 0;  ///< total stochastic-loop iterations (1/mutation = normal; >1 = low-prob regime)
+    int mc_cloned_             = 0;  ///< mutations aborted (retry exhaustion)
+    int mc_rerolls_          = 0;  ///< total invalid-robot rerolls
+    double mc_vertex_repulse_us_ = 0.0; ///< cumulative vertex-repulsion µs this window
+    double mc_bar_repulse_us_    = 0.0; ///< cumulative bar-repulsion µs this window
+    int    mc_repulse_evals_     = 0;   ///< evals that had repulsion timing data
 };

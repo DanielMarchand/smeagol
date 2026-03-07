@@ -47,41 +47,78 @@ int main(int argc, char* argv[])
 
     // ── Load simulation params ────────────────────────────────────────────
     int         fps             = 30;
-    int         num_frames      = 200;
+    int         num_steps       = 1000000;
     int         steps_per_frame = 5000;
     double      step_size       = 1e-7;
     int         width           = 640;
     int         height          = 480;
     std::string out_path        = "/tmp/tetrahedron_fall.mp4";
 
+    // Physics overrides (all optional; defaults come from Simulator / Materials)
+    double      gravity              = Materials::g;
+    double      k_floor              = Materials::k_floor;
+    double      mu_static            = Materials::mu_static;
+    double      wind                 = 0.0;
+    double      bar_stiffness_override = -1.0;  // <0 → leave robot values unchanged
+
     try {
         YAML::Node cfg = YAML::LoadFile(sim_path);
         if (cfg["fps"])             fps             = cfg["fps"].as<int>();
-        if (cfg["num_frames"])      num_frames      = cfg["num_frames"].as<int>();
+        if (cfg["num_steps"])       num_steps       = cfg["num_steps"].as<int>();
+        else if (cfg["num_frames"]) {
+            if (cfg["steps_per_frame"]) steps_per_frame = cfg["steps_per_frame"].as<int>();
+            num_steps = cfg["num_frames"].as<int>() * steps_per_frame;  // legacy
+        }
         if (cfg["steps_per_frame"]) steps_per_frame = cfg["steps_per_frame"].as<int>();
         if (cfg["step_size"])       step_size       = cfg["step_size"].as<double>();
         if (cfg["width"])           width           = cfg["width"].as<int>();
         if (cfg["height"])          height          = cfg["height"].as<int>();
         if (cfg["output"])          out_path        = cfg["output"].as<std::string>();
+        if (cfg["gravity"])         gravity         = cfg["gravity"].as<double>();
+        if (cfg["k_floor"])         k_floor         = cfg["k_floor"].as<double>();
+        if (cfg["mu_static"])       mu_static       = cfg["mu_static"].as<double>();
+        if (cfg["wind"])            wind            = cfg["wind"].as<double>();
+        if (cfg["bar_stiffness"])   bar_stiffness_override = cfg["bar_stiffness"].as<double>();
     } catch (const std::exception& e) {
         std::cerr << "Error loading simulation config: " << e.what() << "\n";
         return 1;
     }
 
-    // CI_NUMFRAMES overrides num_frames from YAML (keeps CI runs fast)
-    if (const char* ci_env = std::getenv("CI_NUMFRAMES")) {
-        num_frames = std::stoi(ci_env);
+    // Apply bar stiffness override to all bars in the robot.
+    if (bar_stiffness_override > 0.0)
+        for (auto& bar : robot.bars)
+            bar.stiffness = bar_stiffness_override;
+
+    // CI_NUMSTEPS overrides num_steps from YAML (keeps CI runs fast)
+    if (const char* ci_env = std::getenv("CI_NUMSTEPS")) {
+        num_steps = std::stoi(ci_env);
     }
+    // Legacy CI env var
+    if (const char* ci_env = std::getenv("CI_NUMFRAMES")) {
+        num_steps = std::stoi(ci_env) * steps_per_frame;
+    }
+    const int num_frames = num_steps / steps_per_frame;
 
     std::cout << "Robot:  " << robot_path
               << "  (" << robot.vertices.size() << "v, " << robot.bars.size() << "b)\n"
-              << "Sim:    steps_per_frame=" << steps_per_frame
+              << "Sim:    num_steps=" << num_steps
+              << "  steps_per_frame=" << steps_per_frame
               << "  step_size=" << step_size << "\n"
-              << "Output: " << num_frames << " frames @ " << fps
+              << "Physics: gravity=" << gravity
+              << "  k_floor=" << k_floor
+              << "  mu_static=" << mu_static
+              << "  wind=" << wind;
+    if (bar_stiffness_override > 0.0)
+        std::cout << "  bar_stiffness=" << bar_stiffness_override << " (override)";
+    std::cout << "\nOutput: " << num_frames << " frames @ " << fps
               << " fps → " << out_path << "\n\n";
 
     // ── Initial energy report ─────────────────────────────────────────────
     Simulator sim(robot);
+    sim.gravity   = gravity;
+    sim.k_floor   = k_floor;
+    sim.mu_static = mu_static;
+    sim.wind      = wind;
     std::cout << "Initial energies:\n"
               << "  H_elastic   = " << sim.elasticEnergy()       << " J\n"
               << "  H_gravity   = " << sim.gravitationalEnergy() << " J\n"

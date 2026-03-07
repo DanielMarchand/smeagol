@@ -91,6 +91,13 @@ static void test_is_valid()
     // Neuron weight vector size mismatch
     r.neurons[0].synapse_weights.conservativeResize(5);
     CHECK(!r.isValid());
+    r.neurons[0].synapse_weights.conservativeResize(1);
+    CHECK(r.isValid());
+
+    // Duplicate actuator on the same bar must fail validation.
+    // (Direct inject bypasses addActuator guard so we can test isValid independently.)
+    r.actuators.push_back(Actuator(0, 0, 0.01));  // bar 0 already has one
+    CHECK(!r.isValid());
 }
 
 static void test_neuron_weight_sizing()
@@ -235,6 +242,192 @@ static void test_empty_com()
     CHECK(com.isZero());
 }
 
+static void test_is_connected()
+{
+    // --- Empty robot (0 vertices): trivially connected ---
+    {
+        Robot r;
+        CHECK(r.isConnected());
+        CHECK(r.isValid());
+    }
+
+    // --- Single vertex, no bars: trivially connected ---
+    {
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.0));
+        CHECK(r.isConnected());
+    }
+
+    // --- Linear chain A-B-C: connected ---
+    {
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.1));
+        r.addVertex(Vertex(0.1, 0.0, 0.1));
+        r.addVertex(Vertex(0.2, 0.0, 0.1));
+        r.addBar(Bar(0, 1, 0.1));
+        r.addBar(Bar(1, 2, 0.1));
+        CHECK(r.isConnected());
+        CHECK(r.isValid());
+    }
+
+    // --- Triangle (fully connected): connected ---
+    {
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.1));
+        r.addVertex(Vertex(0.1, 0.0, 0.1));
+        r.addVertex(Vertex(0.05, 0.1, 0.1));
+        r.addBar(Bar(0, 1, 0.1));
+        r.addBar(Bar(1, 2, 0.1));
+        r.addBar(Bar(0, 2, 0.1));
+        CHECK(r.isConnected());
+        CHECK(r.isValid());
+    }
+
+    // --- Two disjoint bars A-B and C-D: disconnected ---
+    {
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.1));  // 0
+        r.addVertex(Vertex(0.1, 0.0, 0.1));  // 1
+        r.addVertex(Vertex(1.0, 0.0, 0.1));  // 2  (far away, no connection)
+        r.addVertex(Vertex(1.1, 0.0, 0.1));  // 3
+        r.addBar(Bar(0, 1, 0.1));  // cluster 1
+        r.addBar(Bar(2, 3, 0.1));  // cluster 2 — no link to cluster 1
+        CHECK(!r.isConnected());
+        CHECK(!r.isValid());  // isValid() must also reject this
+    }
+
+    // --- Star topology (all spokes meet at vertex 0): connected ---
+    {
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.1));  // hub
+        r.addVertex(Vertex(0.1, 0.0, 0.1));
+        r.addVertex(Vertex(0.0, 0.1, 0.1));
+        r.addVertex(Vertex(-0.1, 0.0, 0.1));
+        r.addBar(Bar(0, 1, 0.1));
+        r.addBar(Bar(0, 2, 0.1));
+        r.addBar(Bar(0, 3, 0.1));
+        CHECK(r.isConnected());
+    }
+
+    // --- Bridge: two triangles joined by one bar — remove the bridge → split ---
+    {
+        // Build: 0-1-2 triangle + 3-4-5 triangle, bridged by bar 2-3
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.1));  // 0
+        r.addVertex(Vertex(0.1, 0.0, 0.1));  // 1
+        r.addVertex(Vertex(0.05, 0.1, 0.1)); // 2
+        r.addVertex(Vertex(0.2, 0.0, 0.1));  // 3
+        r.addVertex(Vertex(0.3, 0.0, 0.1));  // 4
+        r.addVertex(Vertex(0.25, 0.1, 0.1)); // 5
+        r.addBar(Bar(0, 1, 0.1));  // triangle 1
+        r.addBar(Bar(1, 2, 0.1));
+        r.addBar(Bar(0, 2, 0.1));
+        r.addBar(Bar(3, 4, 0.1));  // triangle 2
+        r.addBar(Bar(4, 5, 0.1));
+        r.addBar(Bar(3, 5, 0.1));
+        r.addBar(Bar(2, 3, 0.15)); // bridge (index 6)
+        CHECK(r.isConnected());
+
+        // Remove the bridge bar — the two triangles become disconnected
+        r.removeBar(6);
+        CHECK(!r.isConnected());
+    }
+}
+
+static void test_probe_neural_activity(){
+    // --- No actuators: probe returns false regardless of neurons ---
+    {
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.0));
+        r.addVertex(Vertex(0.1, 0.0, 0.0));
+        r.addBar(Bar(0, 1, 0.1));
+        Neuron n(0.5);
+        r.addNeuron(n);
+        r.addNeuron(n);
+        CHECK(!r.probeNeuralActivity());
+    }
+
+    // --- Permanently OFF: single isolated neuron (no weights), stays at 0 ---
+    {
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.0));
+        r.addVertex(Vertex(0.1, 0.0, 0.0));
+        r.addBar(Bar(0, 1, 0.1));
+        Neuron n(0.5);
+        r.addNeuron(n);
+        r.addActuator(Actuator(0, 0, 0.01));
+        CHECK(!r.probeNeuralActivity());   // stuck OFF
+    }
+
+    // --- Permanently ON: self-excitatory neuron, always fires ---
+    {
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.0));
+        r.addVertex(Vertex(0.1, 0.0, 0.0));
+        r.addBar(Bar(0, 1, 0.1));
+        Neuron n(0.5);
+        r.addNeuron(n);
+        r.neurons[0].synapse_weights[0] = 1.0;  // self-excitatory
+        r.neurons[0].activation = 1.0;           // primed ON
+        r.addActuator(Actuator(0, 0, 0.01));
+        CHECK(!r.probeNeuralActivity());   // stuck ON
+    }
+
+    // --- Anti-phase oscillator (period 2): should be detected as ALIVE ---
+    {
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.0));
+        r.addVertex(Vertex(0.1, 0.0, 0.0));
+        r.addBar(Bar(0, 1, 0.1));
+        Neuron n0(0.5), n1(0.5);
+        n0.activation = 0.0;
+        n1.activation = 1.0;
+        r.addNeuron(n0);
+        r.addNeuron(n1);
+        r.neurons[0].synapse_weights << 0.0, 1.0;  // n0 ← n1
+        r.neurons[1].synapse_weights << 1.0, 0.0;  // n1 ← n0
+        r.addActuator(Actuator(0, 0, 0.01));
+        CHECK(r.probeNeuralActivity());    // oscillates: ALIVE
+    }
+
+    // --- Actuator driven by a non-oscillating neuron: DEAD even with 2 neurons ---
+    // n0 is permanently OFF (default); n1 oscillates but doesn't drive the actuator.
+    {
+        Robot r;
+        r.addVertex(Vertex(0.0, 0.0, 0.0));
+        r.addVertex(Vertex(0.1, 0.0, 0.0));
+        r.addBar(Bar(0, 1, 0.1));
+        Neuron n0(0.5), n1(0.5);
+        n0.activation = 0.0;  // stays 0 forever (no inputs)
+        n1.activation = 1.0;  // will fire, but it's not driving the actuator
+        r.addNeuron(n0);
+        r.addNeuron(n1);
+        // n1 self-excites; n0 has no inputs
+        r.neurons[1].synapse_weights[1] = 1.0;
+        r.addActuator(Actuator(0, /*neuron_idx=*/0, 0.01));  // driven by n0 (stuck OFF)
+        CHECK(!r.probeNeuralActivity());   // actuator neuron is stuck OFF
+    }
+}
+
+static void test_add_actuator_dedup()
+{
+    // Adding a second actuator to a bar that already has one must replace
+    // the first — the robot must never have two actuators for the same bar.
+    Robot r = make_simple_robot();          // bar 0 already has actuator (0,0)
+    CHECK(r.actuators.size() == 1);
+    CHECK(r.actuators[0].neuron_idx == 0);
+
+    // Re-add with a different neuron_idx (bar 0 again).
+    r.addNeuron(Neuron(0.5));               // neuron 1
+    const int ret = r.addActuator(Actuator(/*bar*/0, /*neuron*/1, 0.02));
+    CHECK(r.actuators.size() == 1);         // still only one
+    CHECK(r.actuators[0].bar_idx    == 0);
+    CHECK(r.actuators[0].neuron_idx == 1);  // replaced with new one
+    CHECK(r.actuators[0].bar_range  == 0.02);
+    CHECK(ret == 0);                        // index of the replaced slot
+    CHECK(r.isValid());
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main()
@@ -256,6 +449,9 @@ int main()
     run("Clone independence",         test_clone_independence);
     run("Clear",                      test_clear);
     run("Empty CoM",                  test_empty_com);
+    run("Graph connectivity",         test_is_connected);
+    run("Probe neural activity",      test_probe_neural_activity);
+    run("addActuator dedup",          test_add_actuator_dedup);
 
     if (g_failures == 0) {
         std::cout << "\nAll Robot tests passed.\n";

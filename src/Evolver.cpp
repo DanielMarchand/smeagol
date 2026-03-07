@@ -20,7 +20,6 @@
 #include <cmath>
 #include <csignal>
 #include <ctime>
-#include <deque>
 #include <filesystem>
 #include <future>
 #include <iomanip>
@@ -74,7 +73,11 @@ struct EvalResult {
     int            parent_rank;
     double         parent_sel_prob;
     MutationRecord mutation_record;
+    double         vertex_repulse_us = 0.0; ///< avg µs/gradient-step for vertex repulsion
+    double         bar_repulse_us    = 0.0; ///< avg µs/gradient-step for bar repulsion
 };
+
+using EvalFuture = std::future<EvalResult>;
 
 // ── SelectionParams YAML I/O ─────────────────────────────────────────────────
 
@@ -107,14 +110,46 @@ EvolverParams EvolverParams::fromYAML(const std::string& path)
     if (node["max_evaluations"])  p.max_evaluations   = node["max_evaluations"].as<int>();
     if (node["seed"])             p.seed              = node["seed"].as<int>();
     if (node["output_base_dir"]) p.output_base_dir   = node["output_base_dir"].as<std::string>();
-    if (node["run_dir"])          p.run_dir           = node["run_dir"].as<std::string>();
+    if (node["run_dir"]) {
+        p.run_dir = node["run_dir"].as<std::string>();
+        // Restore trailing slash stripped by toYAML so run_dir is always a
+        // well-formed directory path after deserialization.
+        if (!p.run_dir.empty() && p.run_dir.back() != '/')
+            p.run_dir += '/';
+    }
 
     if (const auto& f = node["fitness"]) {
-        if (f["cycles"])          p.fitness.cycles          = f["cycles"].as<int>();
-        if (f["steps_per_cycle"]) p.fitness.steps_per_cycle = f["steps_per_cycle"].as<int>();
+        bool num_steps_set = false;
+        int  legacy_nf     = -1;
+        if (f["num_steps"])       { p.fitness.num_steps       = f["num_steps"].as<int>(); num_steps_set = true; }
+        if (f["delay_steps"])       p.fitness.delay_steps      = f["delay_steps"].as<int>();
+        if (f["num_frames"])        legacy_nf                  = f["num_frames"].as<int>();     // legacy
+        if (f["cycles"])            legacy_nf                  = f["cycles"].as<int>();         // legacy-legacy
+        if (f["steps_per_frame"])   p.fitness.steps_per_frame  = f["steps_per_frame"].as<int>();
+        if (f["steps_per_cycle"])   p.fitness.steps_per_cycle  = f["steps_per_cycle"].as<int>();
+        if (!num_steps_set && legacy_nf >= 0) {
+            const int spc = p.fitness.steps_per_cycle > 0 ? p.fitness.steps_per_cycle : p.fitness.steps_per_frame;
+            p.fitness.num_steps = legacy_nf * spc;
+        }
         if (f["step_size"])       p.fitness.step_size       = f["step_size"].as<double>();
+        if (f["gravity"])         p.fitness.gravity         = f["gravity"].as<double>();
         if (f["wind"])            p.fitness.wind            = f["wind"].as<double>();
         if (f["mu_static"])       p.fitness.mu_static       = f["mu_static"].as<double>();
+        if (f["k_floor"])         p.fitness.k_floor         = f["k_floor"].as<double>();
+        if (f["actuator_max_extension_per_cycle"])
+            p.fitness.actuator_max_extension_per_cycle = f["actuator_max_extension_per_cycle"].as<double>();
+        if (f["actuator_max_extension_total"])
+            p.fitness.actuator_max_extension_total = f["actuator_max_extension_total"].as<double>();
+        if (f["bar_stiffness_override"])
+            p.fitness.bar_stiffness_override = f["bar_stiffness_override"].as<double>();
+        if (f["k_repulse_vertex"])
+            p.fitness.k_repulse_vertex = f["k_repulse_vertex"].as<double>();
+        if (f["repulse_vertex_min_dist"])
+            p.fitness.repulse_vertex_min_dist = f["repulse_vertex_min_dist"].as<double>();
+        if (f["k_repulse_bar"])
+            p.fitness.k_repulse_bar = f["k_repulse_bar"].as<double>();
+        if (f["repulse_bar_min_dist"])
+            p.fitness.repulse_bar_min_dist = f["repulse_bar_min_dist"].as<double>();
     }
 
     if (const auto& m = node["mutation"])
@@ -133,8 +168,14 @@ EvolverParams EvolverParams::fromYAML(const std::string& path)
 
     if (const auto& v = node["video"]) {
         if (v["fps"])             p.video.fps             = v["fps"].as<int>();
-        if (v["steps_per_frame"]) p.video.steps_per_frame = v["steps_per_frame"].as<int>();
+        if (v["width"])           p.video.width           = v["width"].as<int>();
+        if (v["height"])          p.video.height          = v["height"].as<int>();
         if (v["verbose"])         p.video.verbose         = v["verbose"].as<bool>();
+        if (v["min_fitness"])     p.video.min_fitness     = v["min_fitness"].as<double>();
+        // Legacy: old configs had video.steps_per_frame for capture granularity.
+        // Migrate it to fitness.steps_per_frame (new location).
+        if (v["steps_per_frame"] && p.fitness.steps_per_frame == FitnessParams{}.steps_per_frame)
+            p.fitness.steps_per_frame = v["steps_per_frame"].as<int>();
     }
 
     return p;
@@ -148,13 +189,31 @@ void EvolverParams::toYAML(const std::string& path) const
     out << YAML::Key << "max_evaluations" << YAML::Value << max_evaluations;
     out << YAML::Key << "seed"            << YAML::Value << seed;
     out << YAML::Key << "output_base_dir" << YAML::Value << output_base_dir;
-    out << YAML::Key << "run_dir"         << YAML::Value << run_dir;
+    // Serialize run_dir as a leaf name only (strip output_base_dir prefix and
+    // trailing slash) so the saved config can be used for resuming unchanged.
+    {
+        std::string leaf = run_dir;
+        if (!output_base_dir.empty() && leaf.substr(0, output_base_dir.size()) == output_base_dir)
+            leaf = leaf.substr(output_base_dir.size());
+        if (!leaf.empty() && leaf.back() == '/') leaf.pop_back();
+        out << YAML::Key << "run_dir" << YAML::Value << leaf;
+    }
     out << YAML::Key << "fitness"         << YAML::Value << YAML::BeginMap;
-    out << YAML::Key << "cycles"          << YAML::Value << fitness.cycles;
+    out << YAML::Key << "num_steps"       << YAML::Value << fitness.num_steps;
+    out << YAML::Key << "delay_steps"     << YAML::Value << fitness.delay_steps;
+    out << YAML::Key << "steps_per_frame" << YAML::Value << fitness.steps_per_frame;
     out << YAML::Key << "steps_per_cycle" << YAML::Value << fitness.steps_per_cycle;
     out << YAML::Key << "step_size"       << YAML::Value << fitness.step_size;
+    out << YAML::Key << "gravity"         << YAML::Value << fitness.gravity;
     out << YAML::Key << "wind"            << YAML::Value << fitness.wind;
     out << YAML::Key << "mu_static"       << YAML::Value << fitness.mu_static;
+    out << YAML::Key << "k_floor"         << YAML::Value << fitness.k_floor;
+    out << YAML::Key << "actuator_max_extension_per_cycle" << YAML::Value << fitness.actuator_max_extension_per_cycle;
+    out << YAML::Key << "actuator_max_extension_total"     << YAML::Value << fitness.actuator_max_extension_total;
+    out << YAML::Key << "k_repulse_vertex"        << YAML::Value << fitness.k_repulse_vertex;
+    out << YAML::Key << "repulse_vertex_min_dist" << YAML::Value << fitness.repulse_vertex_min_dist;
+    out << YAML::Key << "k_repulse_bar"           << YAML::Value << fitness.k_repulse_bar;
+    out << YAML::Key << "repulse_bar_min_dist"    << YAML::Value << fitness.repulse_bar_min_dist;
     out << YAML::EndMap;  // fitness
     out << YAML::Key << "mutation"        << YAML::Value << YAML::BeginMap;
     mutation.toYAML(out);
@@ -168,8 +227,10 @@ void EvolverParams::toYAML(const std::string& path) const
     out << YAML::Key << "periodic_video_interval"   << YAML::Value << periodic_video_interval;
     out << YAML::Key << "video"           << YAML::Value << YAML::BeginMap;
     out << YAML::Key << "fps"             << YAML::Value << video.fps;
-    out << YAML::Key << "steps_per_frame" << YAML::Value << video.steps_per_frame;
+    out << YAML::Key << "width"           << YAML::Value << video.width;
+    out << YAML::Key << "height"          << YAML::Value << video.height;
     out << YAML::Key << "verbose"         << YAML::Value << video.verbose;
+    out << YAML::Key << "min_fitness"     << YAML::Value << video.min_fitness;
     out << YAML::EndMap;  // video
     out << YAML::EndMap;  // root
 
@@ -201,15 +262,30 @@ Evolver::Evolver(EvolverParams params)
     }
     rng_.seed(static_cast<unsigned>(params_.seed));
 
+    // ── Resolve run_dir ───────────────────────────────────────────────────────
+    // run_dir in config is a leaf name only (e.g. "run_20260306_000952").
+    // We always prepend output_base_dir so both are relative to cwd the same way.
+    if (!params_.run_dir.empty()) {
+        fs::path leaf = params_.run_dir;
+        if (leaf.is_relative())
+            params_.run_dir = (fs::path(params_.output_base_dir) / leaf).string() + "/";
+        else if (params_.run_dir.back() != '/')
+            params_.run_dir += "/";
+    }
+
     if (params_.resume) {
         // ── Resume path: restore from checkpoint_population.yaml ─────────────
         if (params_.run_dir.empty())
-            throw std::logic_error("Evolver: resume=true but run_dir is empty");
+            throw std::logic_error(
+                "Evolver: resume=true but run_dir is empty.\n"
+                "  Add 'run_dir: run_<timestamp>' to your config (leaf name only,\n"
+                "  relative to output_base_dir).");
 
         const std::string pop_path = params_.run_dir + "checkpoint_population.yaml";
         if (!fs::exists(pop_path))
             throw std::logic_error(
-                "Evolver: resume requested but '" + pop_path + "' not found");
+                "Evolver: resume requested but '" +
+                fs::absolute(pop_path).string() + "' not found");
 
         YAML::Node node = YAML::LoadFile(pop_path);
         eval_count_ = node["eval_count"].as<int>();
@@ -232,7 +308,7 @@ Evolver::Evolver(EvolverParams params)
         fitness_log_.open(params_.run_dir + "fitness_log.csv", std::ios::app);
         lineage_log_.open(params_.run_dir + "lineage.csv",    std::ios::app);
 
-        std::cout << "[Evolver] RESUMING " << params_.run_dir << "\n"
+        std::cout << "[Evolver] RESUMING " << fs::absolute(params_.run_dir).string() << "\n"
                   << "[Evolver] restored " << eval_count_ << " evals, "
                   << population_.size() << " robots, "
                   << "best_fitness=" << fitnesses_[best_idx_] << "m\n";
@@ -271,7 +347,7 @@ Evolver::Evolver(EvolverParams params)
         lineage_log_ << "eval,child_id,parent_id,child_fitness,"
                         "replaced_id,replaced_fitness\n";
 
-        std::cout << "[Evolver] run_dir  : " << params_.run_dir  << "\n"
+        std::cout << "[Evolver] run_dir  : " << fs::absolute(params_.run_dir).string() << "\n"
                   << "[Evolver] seed     : " << params_.seed      << "\n"
                   << "[Evolver] pop_size : " << params_.population_size << "\n"
                   << "[Evolver] max_evals: " << params_.max_evaluations << "\n";
@@ -429,6 +505,13 @@ void Evolver::maybeSavePeriodicVideo(int eval_num)
     if (interval <= 0 || eval_num % interval != 0) return;
     if (!params_.video.enabled) return;
 
+    const double best_fitness = fitnesses_[best_idx_];
+    if (best_fitness < params_.video.min_fitness) {
+        std::cout << "[Evolver] periodic video skipped (fitness " << best_fitness
+                  << " < min_fitness " << params_.video.min_fitness << ")\n";
+        return;
+    }
+
     const std::string stem = params_.run_dir + "checkpoints/periodic_eval_"
                            + std::to_string(eval_num);
 
@@ -437,34 +520,11 @@ void Evolver::maybeSavePeriodicVideo(int eval_num)
 
     // MP4 video.
     try {
-        const FitnessParams& fp  = params_.fitness;
-        const VideoParams&   vp  = params_.video;
-        Robot robot_copy = population_[best_idx_];
-        Simulator sim(robot_copy);
-        sim.wind      = fp.wind;
-        sim.mu_static = fp.mu_static;
-
-        const int spf = std::max(1, vp.steps_per_frame);
-        VideoRenderer vid(vp.fps);
-        vid.setVerbose(vp.verbose);
-        int total_steps = 0;
-        for (int c = 0; c < fp.cycles; ++c) {
-            sim.tickNeural();
-            sim.applyActuators(fp.steps_per_cycle);
-            int remaining = fp.steps_per_cycle;
-            while (remaining > 0) {
-                const int chunk = std::min(remaining, spf);
-                sim.relax(chunk, fp.step_size, 0.0, 0.0);
-                remaining   -= chunk;
-                total_steps += chunk;
-                sim.copyPositionsBack(robot_copy);
-                vid.addFrame(robot_copy,
-                             static_cast<double>(total_steps) * fp.step_size,
-                             sim.activations_);
-            }
-        }
-        vid.finish(stem + ".mp4");
-        std::cout << "[Evolver] periodic video → " << stem << ".mp4\n";
+        FitnessEvaluator::renderVideo(population_[best_idx_], params_.fitness,
+                                      stem + ".mp4", params_.video.fps,
+                                      params_.video.width, params_.video.height,
+                                      params_.video.verbose);
+        std::cout << "[Evolver] periodic video \u2192 " << fs::absolute(stem + ".mp4").string() << "\n";
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] periodic video skipped at eval " << eval_num
                   << ": " << e.what() << "\n";
@@ -473,22 +533,12 @@ void Evolver::maybeSavePeriodicVideo(int eval_num)
 
 // Print a selection/mutation stats digest to stdout.
 // Called every report_interval evals by collect_one.
-void Evolver::printSelectionReport(double mean)
+void Evolver::printSelectionReport(double mean, double stddev)
 {
     const int n = static_cast<int>(fitnesses_.size());
 
-    // ── Population fitness stats ──────────────────────────────────────────
-    double fmin = fitnesses_[0], fmax = fitnesses_[0], sum2 = 0.0;
-    for (double f : fitnesses_) {
-        if (f < fmin) fmin = f;
-        if (f > fmax) fmax = f;
-        sum2 += (f - mean) * (f - mean);
-    }
-    const double stddev = std::sqrt(sum2 / n);
-
-    // ── Selection pressure metric: fraction of effective roulette share
-    //    held by top 10% — computed from raw fitness regardless of scheme,
-    //    so it's a consistent observable even for tournament/rank runs.
+    // ── Selection pressure metric: fraction of fitness weight
+    //    held by top 10% — consistent observable regardless of scheme.
     double total = 0.0;
     for (double f : fitnesses_) total += f;
     std::vector<double> sorted = fitnesses_;
@@ -498,36 +548,61 @@ void Evolver::printSelectionReport(double mean)
     for (int i = 0; i < top10_n; ++i) top10_sum += sorted[i];
     const double top10_share = (total > 0.0) ? (top10_sum / total * 100.0) : 0.0;
 
-    // ── Describe active selection config ──────────────────────────────────
+    // ── Average population topology ──────────────────────────────────────
+    double avg_v = 0, avg_b = 0, avg_n = 0, avg_a = 0;
+    for (const Robot& r : population_) {
+        avg_v += r.vertices.size();
+        avg_b += r.bars.size();
+        avg_n += r.neurons.size();
+        avg_a += r.actuators.size();
+    }
+    const double pn = static_cast<double>(population_.size());
+    avg_v /= pn; avg_b /= pn; avg_n /= pn; avg_a /= pn;
+
+    // ── Report ───────────────────────────────────────────────────────────
     const SelectionParams& sp = params_.selection;
-    std::ostringstream sel_desc;
-    sel_desc << sp.scheme;
-    if (sp.scheme == "proportionate")
-        sel_desc << "(pressure=" << sp.pressure << ")";
-    else if (sp.scheme == "tournament")
-        sel_desc << "(size=" << static_cast<int>(sp.pressure) << ")";
-    else
-        sel_desc << "(eta=" << sp.pressure << ")";
-    sel_desc << "  replacement=" << sp.replacement;
+    std::ostringstream sel;
+    sel << std::fixed << std::setprecision(1) << sp.scheme;
+    if      (sp.scheme == "proportionate") sel << " (pressure=" << sp.pressure << ")";
+    else if (sp.scheme == "tournament")    sel << " (size=" << static_cast<int>(sp.pressure) << ")";
+    else                                   sel << " (eta=" << sp.pressure << ")";
+    sel << "  replace=" << sp.replacement;
 
-    // ── Mutation operator counts over last report_interval ────────────────
-    const int total_ops = mc_perturb_ + mc_add_remove_ + mc_split_
-                        + mc_attach_  + mc_rewire_;
+    std::cout << std::fixed << std::setprecision(1)
+              << "  pop        "
+              << avg_v << "v  " << avg_b << "b  " << avg_n << "n  " << avg_a << "a  avg"
+              << "   sigma=" << std::setprecision(4) << stddev << "m"
+              << "   top10=" << std::setprecision(1) << top10_share << "%\n"
+              << "  selection  " << sel.str() << "\n"
+              << "  mutations  last " << params_.report_interval
+              << "   rounds=" << mc_stoch_rounds_
+              << "   cloned=" << mc_cloned_
+              << "   rerolls=" << mc_rerolls_ << "\n"
+              << "    topology  "
+              << "perturb=" << mc_perturb_
+              << "  split=" << mc_split_vertex_
+              << "  join=" << mc_join_vertex_
+              << "  attach=" << mc_attach_neuron_
+              << "  detach=" << mc_detach_neuron_
+              << "  rewire=" << mc_rewire_ << "\n"
+              << "    struct    "
+              << "+bar=" << mc_add_bar_new_
+              << "  +bridge=" << mc_add_bar_bridge_
+              << "  -bar=" << mc_remove_bar_
+              << "  -bar_e=" << mc_remove_bar_edge_
+              << "  -bar_b=" << mc_remove_bar_bridge_
+              << "  +neuron=" << mc_add_neuron_
+              << "  -neuron=" << mc_remove_neuron_ << "\n";
 
-    std::cout << std::fixed << std::setprecision(4)
-              << "  pop: min=" << fmin << "m  max=" << fmax << "m"
-              << "  stddev=" << stddev << "m\n"
-              << std::setprecision(1)
-              << "  selection: " << sel_desc.str()
-              << "  top-10% hold " << top10_share << "% of raw-fitness share\n"
-              << "  mutations last " << params_.report_interval << " evals"
-              << " (total_ops=" << total_ops << ")"
-              << ":  perturb=" << mc_perturb_
-              << "  add/remove=" << mc_add_remove_
-              << "  split=" << mc_split_
-              << "  attach=" << mc_attach_
-              << "  rewire=" << mc_rewire_
-              << "  forced=" << mc_forced_ << "\n";
+    // Self-collision timing — only print when either term is enabled.
+    if (mc_repulse_evals_ > 0) {
+        const double avg_vv = mc_vertex_repulse_us_ / mc_repulse_evals_;
+        const double avg_bb = mc_bar_repulse_us_    / mc_repulse_evals_;
+        std::cout << std::fixed << std::setprecision(3)
+                  << "    repulsion vertex-avg=" << avg_vv << "µs"
+                  << "  bar-avg=" << avg_bb << "µs"
+                  << "  (over " << mc_repulse_evals_ << " evals)\n";
+    }
 }
 
 // Save the best robot's YAML + PNG + MP4 to checkpoints/ whenever a new fitness record is set.
@@ -551,7 +626,7 @@ void Evolver::maybeSaveSnapshot(int eval_num)
 
     writePopulationCheckpoint();
 
-    std::cout << "[Evolver] checkpoint saved → " << stem << ".yaml\n";
+    std::cout << "[Evolver] checkpoint saved → " << fs::absolute(stem + ".yaml").string() << "\n";
 
     if (!params_.video.enabled) return;
 
@@ -559,42 +634,26 @@ void Evolver::maybeSaveSnapshot(int eval_num)
     try {
         SnapshotRenderer snap;
         snap.setVerbose(params_.video.verbose);
+        snap.render_vertex_radius = static_cast<float>(params_.fitness.repulse_vertex_min_dist / 2.0);
+        snap.render_bar_radius    = static_cast<float>(params_.fitness.repulse_bar_min_dist    / 2.0);
         snap.render(population_[best_idx_], stem + ".png");
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] snapshot PNG skipped at eval " << eval_num
                   << ": " << e.what() << "\n";
     }
 
-    // Save MP4 video — re-simulate best robot, capturing a frame every steps_per_frame steps.
+    // Save MP4 video — skip if best fitness is below the configured threshold.
+    if (current_best < params_.video.min_fitness) {
+        std::cout << "[Evolver] video skipped (fitness " << current_best
+                  << " < min_fitness " << params_.video.min_fitness << ")\n";
+        return;
+    }
     try {
-        const FitnessParams& fp  = params_.fitness;
-        const VideoParams&   vp  = params_.video;
-        Robot robot_copy = population_[best_idx_];  // mutable copy for positions
-        Simulator sim(robot_copy);
-        sim.wind      = fp.wind;
-        sim.mu_static = fp.mu_static;
-
-        const int spf = std::max(1, vp.steps_per_frame);
-        VideoRenderer vid(vp.fps);
-        vid.setVerbose(vp.verbose);
-        int total_steps = 0;
-        for (int c = 0; c < fp.cycles; ++c) {
-            sim.tickNeural();
-            sim.applyActuators(fp.steps_per_cycle);
-            int remaining = fp.steps_per_cycle;
-            while (remaining > 0) {
-                const int chunk = std::min(remaining, spf);
-                sim.relax(chunk, fp.step_size, 0.0, 0.0);
-                remaining   -= chunk;
-                total_steps += chunk;
-                sim.copyPositionsBack(robot_copy);
-                vid.addFrame(robot_copy,
-                             static_cast<double>(total_steps) * fp.step_size,
-                             sim.activations_);
-            }
-        }
-        vid.finish(stem + ".mp4");
-        std::cout << "[Evolver] video saved → " << stem << ".mp4\n";
+        FitnessEvaluator::renderVideo(population_[best_idx_], params_.fitness,
+                                      stem + ".mp4", params_.video.fps,
+                                      params_.video.width, params_.video.height,
+                                      params_.video.verbose);
+        std::cout << "[Evolver] video saved → " << fs::absolute(stem + ".mp4").string() << "\n";
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] video MP4 skipped at eval " << eval_num
                   << ": " << e.what() << "\n";
@@ -625,6 +684,23 @@ void Evolver::writePopulationCheckpoint()
     fs::rename(tmp, params_.run_dir + "checkpoint_population.yaml");
 }
 
+// Poll all in-flight jobs and return the index of whichever one finishes first.
+// Checks each job instantly (no_wait), then sleeps briefly before trying again
+// so the manager thread doesn't busy-spin an entire core while waiting.
+static int waitForAny(std::vector<EvalFuture>& jobs)
+{
+    const auto no_wait    = std::chrono::microseconds(0);
+    const auto poll_sleep = std::chrono::microseconds(200);
+
+    while (true) {
+        for (int i = 0; i < (int)jobs.size(); ++i) {
+            if (jobs[i].wait_for(no_wait) == std::future_status::ready)
+                return i;
+        }
+        std::this_thread::sleep_for(poll_sleep);
+    }
+}
+
 // Main steady-state loop — parallel flight-window design.
 void Evolver::run()
 {
@@ -642,17 +718,25 @@ void Evolver::run()
     // ── Worker lambda — zero shared state, purely functional ──────────────
     // Captures fitness params by value so workers need no shared data.
     auto eval_worker = [fitness_params = params_.fitness](EvalJob job) -> EvalResult {
-        double f = FitnessEvaluator(fitness_params).evaluate(job.child);
+        FitnessEvaluator fe(fitness_params);
+        double f = fe.evaluate(job.child);
+        // Retrieve self-collision timing from the internal simulator.
+        // FitnessEvaluator exposes the last sim's averages via the params-built sim.
+        // We re-read from the fitness params' sim via the last accumulated data.
+        // Since evaluate() constructs a fresh Simulator, we capture timing via
+        // a thin accessor added below.
         return EvalResult{ std::move(job.child), f,
                            job.parent_id, job.parent_fitness,
                            job.parent_rank, job.parent_sel_prob,
-                           job.mutation_record };
+                           job.mutation_record,
+                           fe.lastVertexRepulseUs(),
+                           fe.lastBarRepulseUs() };
     };
 
     // ── Helpers ───────────────────────────────────────────────────────────
     const int kMaxRerolls = params_.selection.max_rerolls;
 
-    std::deque<std::future<EvalResult>> in_flight;
+    std::vector<EvalFuture> in_flight;
 
     // Build one mutated child and submit it for evaluation.
     auto submit_one = [&]() {
@@ -688,13 +772,18 @@ void Evolver::run()
                           << eval_count_ << " — using unmutated clone\n";
                 child = population_[parent_idx].clone();
                 child.id = Robot::nextId();
-                mrec = MutationRecord{};  // fallback: no ops recorded
+                mrec = MutationRecord{};
+                mrec.v_after = (int)child.vertices.size();
+                mrec.b_after = (int)child.bars.size();
+                mrec.n_after = (int)child.neurons.size();
+                mrec.a_after = (int)child.actuators.size();
                 break;
             }
             child = population_[parent_idx].clone();
             child.id = Robot::nextId();
             mrec = Mutator::mutateRecord(child, rng_, params_.mutation);
         }
+        mrec.rerolls = rerolls;
 
         EvalJob job{ std::move(child), pid,
                      pfitness, parent_rank, parent_sel_prob, mrec };
@@ -702,10 +791,17 @@ void Evolver::run()
             std::async(std::launch::async, eval_worker, std::move(job)));
     };
 
-    // Collect the oldest in-flight result and apply it to the population.
+    // Collect whichever in-flight job finishes first and apply it to the population.
+    // Using waitForAny instead of always blocking on the front means a single slow
+    // robot can't stall the pipeline — all other workers keep running.
     auto collect_one = [&]() {
-        EvalResult res = in_flight.front().get();
-        in_flight.pop_front();
+        const int i    = waitForAny(in_flight);
+        EvalResult res = in_flight[i].get();
+
+        // Swap-erase: move the last element into slot i then pop the tail.
+        // O(1) and avoids shifting the whole vector.
+        in_flight[i] = std::move(in_flight.back());
+        in_flight.pop_back();
 
         // Choose replacement slot now, against the current population state,
         // not at submission time (which caused all concurrent workers to target
@@ -751,12 +847,27 @@ void Evolver::run()
         }
 
         // ── Update mutation op counters ───────────────────────────────────
-        if (res.mutation_record.perturb)    ++mc_perturb_;
-        if (res.mutation_record.add_remove) ++mc_add_remove_;
-        if (res.mutation_record.split)      ++mc_split_;
-        if (res.mutation_record.attach)     ++mc_attach_;
-        if (res.mutation_record.rewire)     ++mc_rewire_;
-        if (res.mutation_record.was_forced) ++mc_forced_;
+        if (res.mutation_record.perturb)        ++mc_perturb_;
+        if (res.mutation_record.add_bar_new)    ++mc_add_bar_new_;
+        if (res.mutation_record.add_bar_bridge) ++mc_add_bar_bridge_;
+        if (res.mutation_record.add_neuron)     ++mc_add_neuron_;
+        if (res.mutation_record.remove_bar)      ++mc_remove_bar_;
+        if (res.mutation_record.remove_neuron)   ++mc_remove_neuron_;
+        if (res.mutation_record.remove_bar_edge)    ++mc_remove_bar_edge_;
+        if (res.mutation_record.remove_bar_bridge)  ++mc_remove_bar_bridge_;
+        if (res.mutation_record.join_vertex)         ++mc_join_vertex_;
+        if (res.mutation_record.was_cloned)          ++mc_cloned_;
+        if (res.mutation_record.split_vertex)        ++mc_split_vertex_;
+        if (res.mutation_record.attach_neuron)       ++mc_attach_neuron_;
+        if (res.mutation_record.detach_neuron)       ++mc_detach_neuron_;
+        if (res.mutation_record.rewire)              ++mc_rewire_;
+        mc_stoch_rounds_ += res.mutation_record.stoch_rounds;
+        mc_rerolls_      += res.mutation_record.rerolls;
+        if (res.vertex_repulse_us > 0.0 || res.bar_repulse_us > 0.0) {
+            mc_vertex_repulse_us_ += res.vertex_repulse_us;
+            mc_bar_repulse_us_    += res.bar_repulse_us;
+            ++mc_repulse_evals_;
+        }
 
         // Update best_idx_.
         if (ridx == best_idx_) {
@@ -801,15 +912,23 @@ void Evolver::run()
 
             const int ri = params_.report_interval;
             if (ri > 0 && eval_count_ % ri == 0) {
+                double sum2 = 0.0;
+                for (double f : fitnesses_) sum2 += (f - mean) * (f - mean);
+                const double stddev = std::sqrt(sum2 / static_cast<double>(fitnesses_.size()));
                 std::cout << std::fixed << std::setprecision(4)
                           << "eval=" << eval_count_
                           << "  best=" << fitnesses_[best_idx_] << "m"
                           << "  mean=" << mean << "m\n";
-                printSelectionReport(mean);
+                printSelectionReport(mean, stddev);
 
                 // Reset mutation counters for next interval.
-                mc_perturb_ = mc_add_remove_ = mc_split_ =
-                    mc_attach_ = mc_rewire_ = mc_forced_ = 0;
+                mc_perturb_ = mc_add_bar_new_ = mc_add_bar_bridge_ =
+                    mc_add_neuron_ = mc_remove_bar_ = mc_remove_neuron_ =
+                    mc_remove_bar_edge_ = mc_remove_bar_bridge_ = mc_join_vertex_ = mc_split_vertex_ =
+                    mc_attach_neuron_ = mc_detach_neuron_ = mc_rewire_ =
+                    mc_stoch_rounds_ = mc_cloned_ = mc_rerolls_ = 0;
+                mc_vertex_repulse_us_ = mc_bar_repulse_us_ = 0.0;
+                mc_repulse_evals_ = 0;
             }
         }
 

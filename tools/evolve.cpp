@@ -25,6 +25,7 @@
 
 #include "Evolver.h"
 
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -37,7 +38,11 @@ int main(int argc, char* argv[])
         try {
             params = EvolverParams::fromYAML(argv[1]);
         } catch (const std::exception& e) {
-            std::cerr << "Failed to load config '" << argv[1] << "': " << e.what() << "\n";
+            const std::filesystem::path cfg = argv[1];
+            std::cerr << "Failed to load config '" << std::filesystem::absolute(cfg).string()
+                      << "': " << e.what() << "\n"
+                      << "  (cwd: " << std::filesystem::current_path().string() << ")\n"
+                      << "  exists: " << (std::filesystem::exists(cfg) ? "yes" : "NO — file not found") << "\n";
             return 1;
         }
     } else {

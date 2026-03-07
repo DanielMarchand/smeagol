@@ -57,19 +57,27 @@ static Robot make_passive_tetra()
 }
 
 /**
- * Same tetrahedron but with a self-excitatory neuron (always fires) wired to
- * bar 3 with positive bar_range.  The strut monotonically elongates each cycle,
- * pushing the apex in a consistent direction → non-zero XY locomotion.
+ * Same tetrahedron with a two-neuron anti-phase oscillator: n0 and n1
+ * alternate firing each cycle (period 2).  Only n0 drives an actuator, so
+ * bar 3 pulses extend/retract every two ticks.  The asymmetric floor
+ * contact produces net XY locomotion, and probeNeuralActivity() correctly
+ * identifies this robot as a mover.
  */
 static Robot make_driven_tetra()
 {
     Robot r = make_passive_tetra();
 
-    Neuron n;
-    n.threshold = 0.5;
-    n.synapse_weights = Eigen::VectorXd::Constant(1, 1.0);  // self-weight
-    n.activation = 1.0;          // primed so it fires on tick 1 and every tick after
-    r.addNeuron(n);
+    // Add both neurons first with default zero weights; set cross-excitation
+    // weights afterwards so addNeuron's auto-sizing does not clobber them.
+    Neuron n0(0.5), n1(0.5);
+    n0.activation = 0.0;   // n0 starts quiet
+    n1.activation = 1.0;   // n1 primed so n0 fires on the very first tick
+    r.addNeuron(n0);
+    r.addNeuron(n1);
+
+    // Cross-excitation: n0 fires when n1 was active, and vice-versa.
+    r.neurons[0].synapse_weights << 0.0, 1.0;
+    r.neurons[1].synapse_weights << 1.0, 0.0;
 
     r.addActuator(Actuator(/*bar_idx=*/3, /*neuron_idx=*/0, /*bar_range=*/+0.005));
     return r;
@@ -128,27 +136,27 @@ static void test_driven_robot_positive_fitness()
 
 static void test_more_cycles_increases_fitness()
 {
-    std::cout << "[ RUN ] more cycles ≥ fewer cycles for driven robot\n";
-    FitnessEvaluator::Params p6;  p6.cycles = 6;
-    FitnessEvaluator::Params p12; p12.cycles = 12;
+    std::cout << "[ RUN ] more steps \u2265 fewer steps for driven robot\n";
+    FitnessEvaluator::Params p6;  p6.num_steps = 30000;
+    FitnessEvaluator::Params p12; p12.num_steps = 60000;
 
     double s6  = FitnessEvaluator(p6 ).evaluate(make_driven_tetra());
     double s12 = FitnessEvaluator(p12).evaluate(make_driven_tetra());
 
     CHECK(s12 >= s6);
-    std::cout << "        6 cycles=" << s6 << "  12 cycles=" << s12 << "\n";
+    std::cout << "        6-frame-equiv steps=" << s6 << "  12-frame-equiv steps=" << s12 << "\n";
 }
 
 static void test_trajectory_length()
 {
-    std::cout << "[ RUN ] trajectory has cycles+1 entries\n";
-    FitnessEvaluator::Params p; p.cycles = 5;
+    std::cout << "[ RUN ] trajectory has num_steps/spc+1 entries\n";
+    FitnessEvaluator::Params p; p.num_steps = 25000;
     FitnessEvaluator eval(p);
 
     std::vector<Eigen::Vector2d> traj;
     eval.evaluate(make_driven_tetra(), &traj);
 
-    CHECK(static_cast<int>(traj.size()) == p.cycles + 1);
+    CHECK(static_cast<int>(traj.size()) == p.num_steps / p.steps_per_frame + 1);
 }
 
 static void test_trajectory_start_matches_fitness_start()
@@ -191,8 +199,8 @@ static void test_antiphase_low_drift()
 
 static void test_zero_cycles_returns_zero()
 {
-    std::cout << "[ RUN ] 0 cycles → fitness == 0\n";
-    FitnessEvaluator::Params p; p.cycles = 0;
+    std::cout << "[ RUN ] 0 steps → fitness == 0\n";
+    FitnessEvaluator::Params p; p.num_steps = 0;
     double score = FitnessEvaluator(p).evaluate(make_driven_tetra());
     CHECK_NEAR(score, 0.0, 1e-15);
 }

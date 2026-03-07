@@ -106,11 +106,34 @@ public:
     /// Number of frames accumulated so far.
     [[nodiscard]] int frameCount() const { return frame_count_; }
 
+    /**
+     * @brief Mark the current frame as the fitness origin.
+     *
+     * The displacement shown in the HUD banner is computed from this
+     * frame onward (not from the first frame).  Call this after any
+     * settling / delay phase so the display shows 0 at that moment.
+     * Before this is called the banner reads "settling..." instead of
+     * a displacement value.
+     */
+    void markFitnessOrigin();
+
+    /**
+     * @brief Enter "settling" mode: the displacement banner shows
+     *        "settling..." (grey) until markFitnessOrigin() is called.
+     *
+     * Call this before adding delay/warm-up frames so the viewer
+     * is not confused by pre-fitness movement in the HUD.
+     */
+    void beginSettling();
+
 private:
     int                    fps_;
     std::filesystem::path  frame_dir_;   ///< temp dir holding numbered PNGs
     int                    frame_count_ = 0;
     bool                   finished_    = false;
+    /// Index into com_trail_ from which displacement is measured.
+    /// Set by markFitnessOrigin(); -1 = not yet set (show "settling...").
+    int                    fitness_origin_idx_ = 0;
 
     /// Centre-of-mass positions recorded once per addFrame call (Z-up coords).
     /// Used to draw the 3D CoM trail and compute live displacement in the HUD.

@@ -1,0 +1,54 @@
+# robot.yaml – regular tetrahedron (edge 0.2 m) with a dangling bar at the apex.
+#
+# Geometry (top view of base triangle):
+#
+#          v2 [0.10, 0.173, 0.00]
+#         /  \
+#        /    \
+#      v0------v1
+#   [0,0,0]  [0.20,0,0]
+#
+#   v3 [0.10, 0.058, 0.163]  ← apex (regular-tet centroid height)
+#   v4 [0.05, 0.029, 0.082]  ← free end of dangling bar, aimed toward v0
+#
+# Bar indices:
+#   0: v0–v1  base front
+#   1: v0–v2  base left
+#   2: v1–v2  base right
+#   3: v0–v3  strut left   ← DebugActuator (rocks the body)
+#   4: v1–v3  strut right
+#   5: v2–v3  strut back
+#   6: v3–v4  dangling bar  (free end v4, no other connections)
+#
+# The actuated strut (bar 3, v0→apex) oscillates ±4 cm at 1 Hz.
+# Because the dangling bar's free end has no constraint other than gravity
+# and the rigid bar, it swings like a pendulum inside the tetrahedron.
+
+id: 10
+vertices:
+  - [0.00,  0.000, 0.10]   # 0 – base front-left
+  - [0.20,  0.000, 0.10]   # 1 – base front-right
+  - [0.10,  0.173, 0.10]   # 2 – base back
+  - [0.10,  0.058, 0.263]  # 3 – apex
+  - [0.15,  0.058, 0.102]  # 4 – free end of pendulum bar (inside tet, toward v0)
+
+bars:
+  - {v1: 0, v2: 1, stiffness: 50000}  # 0 – base front
+  - {v1: 0, v2: 2, stiffness: 50000}  # 1 – base left
+  - {v1: 1, v2: 2, stiffness: 50000}  # 2 – base right
+  - {v1: 0, v2: 3, stiffness: 50000}  # 3 – strut left  (actuated)
+  - {v1: 1, v2: 3, stiffness: 50000}  # 4 – strut right
+  - {v1: 2, v2: 3, stiffness: 50000}  # 5 – strut back
+  - {v1: 3, v2: 4, stiffness: 50000}  # 6 – pendulum  (rest_length inferred ≈ 0.10 m)
+
+neurons: []
+actuators: []
+
+# DebugActuator: oscillates bar 3 (left strut) at 1 Hz, ±4 cm.
+# This creates an asymmetric rocking force on the body.
+# Note: the simulator is quasi-static (no inertia), so v4 settles to its
+# minimum-energy position each frame (hanging below the apex) rather than
+# swinging freely.  The interesting question is whether the rocking produces
+# net translation — i.e. does the robot walk?
+debug_actuators:
+  - {bar_idx: 3, amplitude: 0.04, frequency: 1.0, phase: 0.0, bar_range: 0.04}

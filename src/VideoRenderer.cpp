@@ -47,6 +47,18 @@ VideoRenderer::~VideoRenderer()
 
 // ── Frame capture ─────────────────────────────────────────────────────────────
 
+void VideoRenderer::markFitnessOrigin()
+{
+    // Point to the next frame that will be added — displacement will read 0
+    // on that frame and grow from there.
+    fitness_origin_idx_ = static_cast<int>(com_trail_.size());
+}
+
+void VideoRenderer::beginSettling()
+{
+    fitness_origin_idx_ = -1;  // activates the "settling..." banner
+}
+
 void VideoRenderer::addFrame(const Robot& robot, double sim_time)
 {
     addFrame(robot, sim_time, {});
@@ -93,23 +105,32 @@ void VideoRenderer::addFrame(const Robot&               robot,
                          active_n, (int)activations.size());
         DrawText(hud.c_str(), 10, 10, 16, RAYWHITE);
 
-        // ── Displacement banner (XY, from first frame) ───────────────────
-        if (com_trail_.size() >= 2)
+        // ── Displacement label (top-right, small, trail green) ───────────
         {
-            const double disp_xy = (com.head<2>() - com_trail_.front().head<2>()).norm();
-            const std::string disp_str =
-                TextFormat("displacement: %.4f m", disp_xy);
+            static const Color kTrailGreen = { 60, 200, 80, 255 };
+            static const int   kFont       = 14;
+            static const int   kPad        = 8;   // px from right / top edge
 
-            // Draw a semi-transparent background strip, then the text centred on it
-            const int font_size = 22;
-            const int text_w    = MeasureText(disp_str.c_str(), font_size);
-            const int strip_x   = m_width / 2 - text_w / 2 - 10;
-            const int strip_y   = 36;
-            DrawRectangle(strip_x, strip_y - 4, text_w + 20, font_size + 8,
-                          Color{0, 0, 0, 160});
-            DrawText(disp_str.c_str(),
-                     m_width / 2 - text_w / 2, strip_y,
-                     font_size, Color{255, 220, 50, 255});  // gold
+            const char* label = nullptr;
+            std::string disp_str;
+
+            if (fitness_origin_idx_ < 0)
+            {
+                label = "settling...";
+            }
+            else if (static_cast<int>(com_trail_.size()) > fitness_origin_idx_)
+            {
+                const double disp_xy =
+                    (com.head<2>() - com_trail_[fitness_origin_idx_].head<2>()).norm();
+                disp_str = TextFormat("disp: %.4f m", disp_xy);
+                label    = disp_str.c_str();
+            }
+
+            if (label)
+            {
+                const int text_w = MeasureText(label, kFont);
+                DrawText(label, m_width - text_w - kPad, kPad, kFont, kTrailGreen);
+            }
         }
     EndDrawing();
 
@@ -124,6 +145,7 @@ void VideoRenderer::addFrame(const Robot&               robot,
     UnloadImage(img);
 
     ++frame_count_;
+    std::cout << "\r  frame " << frame_count_ << std::flush;
 }
 
 // ── Video compilation ─────────────────────────────────────────────────────────
@@ -132,6 +154,8 @@ bool VideoRenderer::finish(const std::string& output_path)
 {
     if (finished_) return true;
     finished_ = true;
+    std::cout << "\n";  // end the \r frame-progress line
+    std::cout.flush();
 
     if (frame_count_ == 0)
     {

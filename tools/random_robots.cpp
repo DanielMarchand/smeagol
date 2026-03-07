@@ -100,25 +100,8 @@ static void renderVideo(Robot r, const FitnessParams& fp,
                         int fps = 30)
 {
     std::cout << "  Recording video → " << mp4_path << " ...\n";
-
-    Simulator sim(r);
-    sim.wind = fp.wind;
-
-    VideoRenderer vid(fps, 1280, 720);
-    vid.addFrame(r, 0.0, sim.activations_);
-
-    for (int c = 0; c < fp.cycles; ++c) {
-        sim.tickNeural();
-        sim.applyActuators(fp.steps_per_cycle);
-        sim.relax(fp.steps_per_cycle, fp.step_size, 0.0, 0.0);
-        sim.copyPositionsBack(r);
-        vid.addFrame(r, static_cast<double>(c + 1) / fps, sim.activations_);
-    }
-
-    if (vid.finish(mp4_path))
-        std::cout << "  Written:  " << mp4_path << "\n";
-    else
-        std::cerr << "  WARNING: ffmpeg failed for " << mp4_path << "\n";
+    FitnessEvaluator::renderVideo(std::move(r), fp, mp4_path, fps, /*verbose=*/false);
+    std::cout << "  Written:  " << mp4_path << "\n";
 }
 
 int main(int argc, char* argv[])
@@ -131,12 +114,13 @@ int main(int argc, char* argv[])
     fs::create_directories(out_dir);
 
     std::mt19937 rng(seed);
-    const FitnessParams fp;   // default params: 12 cycles, 5000 steps/cycle
+    const FitnessParams fp;   // default params: 60000 steps, 5000 steps/frame
 
     std::cout << "Generating " << N << " random robots  (seed=" << seed << ")\n";
     std::cout << "Output dir: " << out_dir << "\n";
-    std::cout << "Simulation: " << fp.cycles << " cycles  ("
-              << fp.steps_per_cycle << " steps/cycle)\n";
+    std::cout << "Simulation: " << fp.num_steps << " total steps  ("
+              << fp.steps_per_frame << " steps/frame, "
+              << fp.num_steps / fp.steps_per_frame << " frames)\n";
 
     for (int i = 0; i < N; ++i) {
         Robot r = RobotFactory::randomRobot(rng);

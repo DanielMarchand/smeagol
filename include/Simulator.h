@@ -149,12 +149,13 @@ public:
                       double convergence_tol  = 1e-10);
 
     /**
-     * @brief Apply static friction lock to a gradient matrix in-place.
+     * @brief Apply kinetic friction resistance to a gradient matrix in-place.
      *
      * For each vertex j currently in contact with the floor (z_j ≤ 0):
-     *   - Normal force:  N_j = 2 · k_floor · |z_j|
-     *   - Lateral force: F_lat = ‖(grad_x, grad_y)‖
-     *   - If F_lat ≤ mu_static · N_j: zero out x,y components of grad row j
+     *   - Normal force:   N_j = 2 · k_floor · |z_j|
+     *   - Friction limit: f = mu_static · N_j
+     *   - Lateral gradient scaled down by max(0, F_lat - f) / F_lat
+     *     (always provides resistance; never fully locks or reverses).
      *
      * Called by relax() after computeGradient() and before the position step.
      * Exposed publicly for unit testing.
@@ -234,6 +235,12 @@ public:
     std::vector<double> activations_;
 
     /**
+     * Gravitational acceleration magnitude [m/s²].
+     * Defaults to Materials::g (9.81).  Set to 0 to disable gravity.
+     */
+    double gravity = Materials::g;
+
+    /**
      * Optional wind acceleration [m/s²] applied to all vertices in +X.
      * Set to a positive value before calling relax() to simulate a
      * constant horizontal force (useful for sanity-checking the fitness
@@ -243,11 +250,84 @@ public:
     double wind = 0.0;
 
     /**
-     * Static friction coefficient (Coulomb model).
-     * Lateral force must exceed mu_static × normal_force to slide a grounded vertex.
+     * Kinetic friction coefficient.
+     * Each grounded vertex's lateral gradient is reduced by mu_static × normal_force
+     * (clamped to zero — friction never reverses a vertex's direction of motion).
      * Defaults to Materials::mu_static (0.5).  Override via FitnessParams::mu_static.
      */
     double mu_static = Materials::mu_static;
+
+    /**
+     * Floor penalty spring stiffness [N/m].  Replaces the hardcoded Materials::k_floor
+     * so callers can tune floor softness per-experiment.
+     * Defaults to Materials::k_floor (1.4e6).
+     */
+    double k_floor = Materials::k_floor;
+
+    /**
+     * Maximum bar extension per neural cycle [m].  Limits how far an actuator can
+     * lengthen during a single applyActuators() call.
+     */
+    double actuator_max_per_cycle = 0.01;
+
+    /**
+     * Maximum absolute bar extension from its base rest length [m].  Hard cap on
+     * total elongation regardless of per-cycle limit.
+     */
+    double actuator_max_total = 0.05;
+
+    // ── Self-collision prevention ─────────────────────────────────────────
+
+    /**
+     * Vertex-vertex repulsion coefficient [N·m⁻²].  For every non-connected
+     * vertex pair whose distance is below repulse_vertex_min_dist, a quadratic
+     * penalty  k · (r₀ − d)²  is added to the energy, pushing vertices apart.
+     * Default 0 = disabled.
+     */
+    double k_repulse_vertex = 0.0;
+
+    /** Minimum vertex-vertex distance [m] before repulsion activates. */
+    double repulse_vertex_min_dist = 0.02;
+
+    /**
+     * Bar-bar repulsion coefficient [N·m⁻²].  For every non-adjacent bar pair
+     * whose segment-to-segment clearance is below repulse_bar_min_dist, a
+     * quadratic penalty is added, preventing bars from crossing through each other.
+     * Default 0 = disabled.
+     */
+    double k_repulse_bar = 0.0;
+
+    /** Minimum bar-to-bar clearance [m] before bar repulsion activates. */
+    double repulse_bar_min_dist = 0.01;
+
+    // ── Repulsion timing ──────────────────────────────────────────────────
+
+    /**
+     * Average time spent computing vertex repulsion per computeGradient()
+     * call [µs], accumulated since the last resetRepulseTiming().
+     */
+    double avgVertexRepulseUs() const {
+        return timing_calls_ > 0
+            ? timing_vertex_repulse_ns_ / static_cast<double>(timing_calls_) / 1000.0
+            : 0.0;
+    }
+
+    /**
+     * Average time spent computing bar repulsion per computeGradient()
+     * call [µs], accumulated since the last resetRepulseTiming().
+     */
+    double avgBarRepulseUs() const {
+        return timing_calls_ > 0
+            ? timing_bar_repulse_ns_ / static_cast<double>(timing_calls_) / 1000.0
+            : 0.0;
+    }
+
+    /** Reset all repulsion timing accumulators to zero. */
+    void resetRepulseTiming() {
+        timing_vertex_repulse_ns_ = 0.0;
+        timing_bar_repulse_ns_    = 0.0;
+        timing_calls_             = 0;
+    }
 
     /**
      * Per-bar rest-length overrides, length == robot.bars.size().
@@ -267,12 +347,20 @@ private:
     const Robot& robot_;   ///< Topology reference (bars, stiffness, etc.)
 
     /**
-     * @brief Compute the N×3 energy gradient matrix.
-     *
-     * Row j = ∂H/∂p_j = elastic contributions from all bars incident on j
-     *                   + gravitational gradient [0, 0, m_j·g].
+     * @brief Compute the N×3 energy gradient matrix (elastic + gravity +
+     *        floor + optional self-collision repulsion terms).
      */
     [[nodiscard]] Eigen::MatrixX3d computeGradient() const;
+
+    /** Add vertex-vertex repulsion contributions to grad (timed). */
+    void addVertexRepulsion(Eigen::MatrixX3d& grad) const;
+
+    /** Add bar-bar repulsion contributions to grad (timed). */
+    void addBarRepulsion(Eigen::MatrixX3d& grad) const;
+
+    mutable double timing_vertex_repulse_ns_ = 0.0;  ///< cumulative ns for vv repulsion
+    mutable double timing_bar_repulse_ns_    = 0.0;  ///< cumulative ns for bb repulsion
+    mutable long   timing_calls_             = 0;    ///< number of computeGradient() calls
 
     std::mt19937 rng_;   ///< PRNG for relaxation noise
 
