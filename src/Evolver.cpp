@@ -172,6 +172,8 @@ EvolverParams EvolverParams::fromYAML(const std::string& path)
         if (v["height"])          p.video.height          = v["height"].as<int>();
         if (v["verbose"])         p.video.verbose         = v["verbose"].as<bool>();
         if (v["min_fitness"])     p.video.min_fitness     = v["min_fitness"].as<double>();
+        if (v["render_vertex_radius"]) p.video.render_vertex_radius = v["render_vertex_radius"].as<float>();
+        if (v["render_bar_radius"])    p.video.render_bar_radius    = v["render_bar_radius"].as<float>();
         // Legacy: old configs had video.steps_per_frame for capture granularity.
         // Migrate it to fitness.steps_per_frame (new location).
         if (v["steps_per_frame"] && p.fitness.steps_per_frame == FitnessParams{}.steps_per_frame)
@@ -231,6 +233,8 @@ void EvolverParams::toYAML(const std::string& path) const
     out << YAML::Key << "height"          << YAML::Value << video.height;
     out << YAML::Key << "verbose"         << YAML::Value << video.verbose;
     out << YAML::Key << "min_fitness"     << YAML::Value << video.min_fitness;
+    out << YAML::Key << "render_vertex_radius" << YAML::Value << video.render_vertex_radius;
+    out << YAML::Key << "render_bar_radius"    << YAML::Value << video.render_bar_radius;
     out << YAML::EndMap;  // video
     out << YAML::EndMap;  // root
 
@@ -523,7 +527,9 @@ void Evolver::maybeSavePeriodicVideo(int eval_num)
         FitnessEvaluator::renderVideo(population_[best_idx_], params_.fitness,
                                       stem + ".mp4", params_.video.fps,
                                       params_.video.width, params_.video.height,
-                                      params_.video.verbose);
+                                      params_.video.verbose,
+                                      params_.video.render_vertex_radius,
+                                      params_.video.render_bar_radius);
         std::cout << "[Evolver] periodic video \u2192 " << fs::absolute(stem + ".mp4").string() << "\n";
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] periodic video skipped at eval " << eval_num
@@ -634,8 +640,8 @@ void Evolver::maybeSaveSnapshot(int eval_num)
     try {
         SnapshotRenderer snap;
         snap.setVerbose(params_.video.verbose);
-        snap.render_vertex_radius = static_cast<float>(params_.fitness.repulse_vertex_min_dist / 2.0);
-        snap.render_bar_radius    = static_cast<float>(params_.fitness.repulse_bar_min_dist    / 2.0);
+        snap.render_vertex_radius = params_.video.render_vertex_radius;
+        snap.render_bar_radius    = params_.video.render_bar_radius;
         snap.render(population_[best_idx_], stem + ".png");
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] snapshot PNG skipped at eval " << eval_num
@@ -652,7 +658,9 @@ void Evolver::maybeSaveSnapshot(int eval_num)
         FitnessEvaluator::renderVideo(population_[best_idx_], params_.fitness,
                                       stem + ".mp4", params_.video.fps,
                                       params_.video.width, params_.video.height,
-                                      params_.video.verbose);
+                                      params_.video.verbose,
+                                      params_.video.render_vertex_radius,
+                                      params_.video.render_bar_radius);
         std::cout << "[Evolver] video saved → " << fs::absolute(stem + ".mp4").string() << "\n";
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] video MP4 skipped at eval " << eval_num

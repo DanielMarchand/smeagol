@@ -130,7 +130,8 @@ double FitnessEvaluator::evaluate(const Robot&                  robot,
 
 void FitnessEvaluator::renderVideo(Robot robot, const FitnessParams& fp,
                                    const std::string& path,
-                                   int fps, int width, int height, bool verbose)
+                                   int fps, int width, int height, bool verbose,
+                                   float render_vertex_radius, float render_bar_radius)
 {
     Simulator sim = makeSimulator(robot, fp);
 
@@ -148,11 +149,8 @@ void FitnessEvaluator::renderVideo(Robot robot, const FitnessParams& fp,
 
     VideoRenderer vid(fps, width, height);
     vid.setVerbose(verbose);
-    // Match visual size to repulsion thresholds so surfaces touch at the
-    // exact distance the physics penalty activates.  Falls back to 0.010 m
-    // when repulsion is disabled (defaults: repulse_*_min_dist = 0.02 m).
-    vid.render_vertex_radius = static_cast<float>(fp.repulse_vertex_min_dist / 2.0);
-    vid.render_bar_radius    = static_cast<float>(fp.repulse_bar_min_dist    / 2.0);
+    vid.render_vertex_radius = render_vertex_radius;
+    vid.render_bar_radius    = render_bar_radius;
     int steps_done = 0;
 
     // ── Delay phase (rendered but not counted toward fitness) ─────────────

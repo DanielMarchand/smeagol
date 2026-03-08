@@ -158,7 +158,9 @@ public:
                             const std::string& path,
                             int fps = 30,
                             int width = 1280, int height = 720,
-                            bool verbose = false);
+                            bool verbose = false,
+                            float render_vertex_radius = 0.010f,
+                            float render_bar_radius    = 0.010f);
 
     const Params& params() const { return params_; }
 

@@ -20,6 +20,8 @@ struct VideoParams
     int    height      = 720;      ///< render height in pixels
     bool   verbose     = false;    ///< if false (default) suppress raylib INFO and ffmpeg output
     double min_fitness = 0.01;     ///< skip MP4 render if best fitness is below this [m]
+    float  render_vertex_radius = 0.010f; ///< visual sphere radius for vertices [m]
+    float  render_bar_radius    = 0.010f; ///< visual cylinder radius for bars/actuators [m]
 };
 
 // ── SelectionParams ───────────────────────────────────────────────────────────
