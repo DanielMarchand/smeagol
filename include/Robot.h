@@ -120,7 +120,12 @@ public:
      * connected component.  A robot with two disjoint subgraphs (e.g. two
      * separate clusters of bars with no bar joining them) fails this check.
      */
-    [[nodiscard]] bool isValid() const;
+    /// Returns false if the robot is topologically inconsistent (bad indices,
+    /// disconnected graph, isolated vertices, duplicate actuators, etc.).
+    /// Also returns false if any bar's rest_length is below @p bar_length_min.
+    /// Default bar_length_min=0 preserves the original behaviour for callers
+    /// that don't need the length check.
+    [[nodiscard]] bool isValid(double bar_length_min = 0.0) const;
 
     /**
      * Returns true iff the bar graph forms a single connected component.

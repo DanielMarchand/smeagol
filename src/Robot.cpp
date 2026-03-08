@@ -201,7 +201,7 @@ Eigen::Vector3d Robot::centerOfMass() const
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
-bool Robot::isValid() const
+bool Robot::isValid(double bar_length_min) const
 {
     const int nv = static_cast<int>(vertices.size());
     const int nb = static_cast<int>(bars.size());
@@ -211,6 +211,7 @@ bool Robot::isValid() const
         if (b.v1 < 0 || b.v1 >= nv) return false;
         if (b.v2 < 0 || b.v2 >= nv) return false;
         if (b.rest_length <= 0.0)    return false;
+        if (b.rest_length < bar_length_min) return false;
     }
 
     for (const auto& a : actuators) {

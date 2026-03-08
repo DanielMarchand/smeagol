@@ -820,7 +820,7 @@ void Evolver::run()
         MutationRecord mrec = Mutator::mutateRecord(child, rng_, params_.mutation);
 
         int rerolls = 0;
-        while (!child.isValid()) {
+        while (!child.isValid(params_.mutation.bar_length_min)) {
             ++rerolls;
             if (rerolls >= kMaxRerolls) {
                 std::cerr << "[Evolver] warning: reroll limit hit at eval "
