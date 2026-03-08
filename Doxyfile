@@ -19,6 +19,16 @@ HTML_COLORSTYLE        = LIGHT
 
 GENERATE_LATEX         = NO
 
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+CLASS_DIAGRAMS         = YES
+CLASS_GRAPH            = YES
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+DIRECTORY_GRAPH        = YES
+
 QUIET                  = YES
 WARNINGS               = YES
 

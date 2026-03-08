@@ -32,8 +32,8 @@ jobs:
           cmake --build /tmp/raylib_src/build -j$(nproc)
           cmake --install /tmp/raylib_src/build
 
-      - name: Install Doxygen
-        run: sudo apt-get install -y --no-install-recommends doxygen
+      - name: Install Doxygen & Graphviz
+        run: sudo apt-get install -y --no-install-recommends doxygen graphviz
 
       - name: Configure & build
         run: |
