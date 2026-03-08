@@ -22,6 +22,10 @@ struct VideoParams
     double min_fitness = 0.01;     ///< skip MP4 render if best fitness is below this [m]
     float  render_vertex_radius = 0.010f; ///< visual sphere radius for vertices [m]
     float  render_bar_radius    = 0.010f; ///< visual cylinder radius for bars/actuators [m]
+    float  camera_distance  = 0.8f;  ///< distance from target [m]
+    float  camera_fov       = 45.0f; ///< field of view [degrees]
+    float  camera_elevation = 0.8f;  ///< vertical offset ratio relative to lateral distance
+    bool   camera_follow    = true;  ///< if true, camera tracks robot CoM each frame; if false, camera fixed at origin
 };
 
 // ── SelectionParams ───────────────────────────────────────────────────────────

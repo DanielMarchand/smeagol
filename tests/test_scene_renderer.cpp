@@ -80,7 +80,8 @@ static void test_camera_init()
     renderer.lookAt(0.5f, 0.0f, 0.0f);
 
     // Reset to a different distance
-    renderer.resetCamera(2.0f);
+    renderer.camera_distance = 2.0f;
+    renderer.resetCamera();
 
     CHECK(!renderer.isOpen());
 }

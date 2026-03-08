@@ -604,6 +604,34 @@ static void test_bar_repulsion_ignores_adjacent_bars()
     CHECK_NEAR(x1_before, x1_after, 1e-7);
 }
 
+// A vertex that is NOT an endpoint of a bar but lies very close to its
+// interior (e.g. a triangle collapsing toward collinear) should be
+// repelled by vertex-bar repulsion.
+static void test_vertex_bar_repulsion_fires_for_interior_penetration()
+{
+    // Triangle: v0-(0,0,0.1)  v1-(0.1,0,0.1)  v2-(0.05,0.001,0.1)
+    // v2 is midway between v0 and v1 (t≈0.5) and only 1mm away from
+    // bar(v0,v1) — well within the repulsion threshold.
+    Robot r;
+    r.addVertex(Vertex(0.0,  0.0,   0.1));   // v0
+    r.addVertex(Vertex(0.1,  0.0,   0.1));   // v1
+    r.addVertex(Vertex(0.05, 0.001, 0.1));   // v2 — near interior of bar(0,1)
+    r.addBar(Bar(0, 1, 0.1));   // the bar v2 will penetrate
+    r.addBar(Bar(0, 2, 0.05));  // adjacent to bar(0,1) at v0
+    r.addBar(Bar(1, 2, 0.05));  // adjacent to bar(0,1) at v1
+
+    Simulator sim(r);
+    sim.k_repulse_bar        = 1e6;
+    sim.repulse_bar_min_dist = 0.05;   // 50mm — comfortably larger than 1mm gap
+    sim.gravity              = 0.0;
+
+    const double y2_before = sim.positions(2, 1);   // Y-coord of v2
+    sim.relax(20, 1e-9, 0.0);
+    const double y2_after  = sim.positions(2, 1);
+    // Repulsion must push v2 away from bar(0,1) in +Y direction.
+    CHECK(y2_after > y2_before + 1e-6);
+}
+
 // Timing accumulators start at zero, increment after a gradient call,
 // and reset back to zero via resetRepulseTiming().
 static void test_repulsion_timing_accumulates_and_resets()
@@ -678,6 +706,7 @@ int main()
     run("Bar repulsion: crossing bars penalised",     test_bar_repulsion_fires_for_crossing_bars);
     run("Bar repulsion: silent for distant bars",     test_bar_repulsion_silent_when_bars_far_apart);
     run("Bar repulsion: ignores adjacent bars",       test_bar_repulsion_ignores_adjacent_bars);
+    run("Vertex-bar repulsion: interior penetration", test_vertex_bar_repulsion_fires_for_interior_penetration);
     run("Repulsion timing accumulates and resets",    test_repulsion_timing_accumulates_and_resets);
 
     if (g_failures == 0) {

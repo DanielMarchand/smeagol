@@ -74,8 +74,9 @@ void VideoRenderer::addFrame(const Robot&               robot,
 
     // Centre camera on robot CoM (convert sim Z-up → Raylib Y-up)
     const Vector3 rl = toRaylib(com.x(), com.y(), com.z());
-    lookAt(rl.x, rl.y, rl.z);
-    resetCamera(0.8f);
+    resetCamera();       // sets position relative to origin using camera_* fields
+    if (camera_follow)
+        lookAt(rl.x, rl.y, rl.z);  // translates camera to follow CoM
 
     BeginDrawing();
         ClearBackground({ 30, 30, 30, 255 });
@@ -83,54 +84,47 @@ void VideoRenderer::addFrame(const Robot&               robot,
             drawFloor(30, 0.1f);
             drawRobot(robot);
             drawComTrail(com_trail_);
-            if (!activations.empty())
-                drawNeuralOverlay(robot, activations);
         EndMode3D();
 
-        // ── HUD ──────────────────────────────────────────────────────────
+        // Neural overlay uses 2D screen-space projection so it always stays
+        // within the frame regardless of camera position.
+        if (!activations.empty())
+            drawNeuralOverlay(robot, activations);
+
+        // ── HUD (top-left, two lines) ─────────────────────────────────
         const int active_n = [&]{
             int n = 0;
             for (double a : activations) if (a > 0.5) ++n;
             return n;
         }();
-        const std::string hud = activations.empty()
-            ? TextFormat("t=%.3fs  frame=%d  v=%d  b=%d",
-                         sim_time, frame_count_,
-                         (int)robot.vertices.size(),
-                         (int)robot.bars.size())
-            : TextFormat("t=%.3fs  frame=%d  v=%d  b=%d  neurons=%d/%d active",
-                         sim_time, frame_count_,
-                         (int)robot.vertices.size(),
-                         (int)robot.bars.size(),
-                         active_n, (int)activations.size());
-        DrawText(hud.c_str(), 10, 10, 16, RAYWHITE);
 
-        // ── Displacement label (top-right, small, trail green) ───────────
+        // Displacement since fitness origin (or "settling…").
+        std::string disp_str = "settling...";
+        if (fitness_origin_idx_ >= 0 &&
+            static_cast<int>(com_trail_.size()) > fitness_origin_idx_)
         {
-            static const Color kTrailGreen = { 60, 200, 80, 255 };
-            static const int   kFont       = 14;
-            static const int   kPad        = 8;   // px from right / top edge
+            const double disp_xy =
+                (com.head<2>() - com_trail_[fitness_origin_idx_].head<2>()).norm();
+            disp_str = TextFormat("disp=%.4fm", disp_xy);
+        }
 
-            const char* label = nullptr;
-            std::string disp_str;
+        // Line 1: time / frame / topology counts / displacement
+        const std::string line1 = TextFormat(
+            "t=%.3fs  frame=%d  v=%d  b=%d  a=%d  %s",
+            sim_time, frame_count_,
+            (int)robot.vertices.size(),
+            (int)robot.bars.size(),
+            (int)robot.actuators.size(),
+            disp_str.c_str());
+        DrawText(line1.c_str(), 10, 10, 16, RAYWHITE);
 
-            if (fitness_origin_idx_ < 0)
-            {
-                label = "settling...";
-            }
-            else if (static_cast<int>(com_trail_.size()) > fitness_origin_idx_)
-            {
-                const double disp_xy =
-                    (com.head<2>() - com_trail_[fitness_origin_idx_].head<2>()).norm();
-                disp_str = TextFormat("disp: %.4f m", disp_xy);
-                label    = disp_str.c_str();
-            }
-
-            if (label)
-            {
-                const int text_w = MeasureText(label, kFont);
-                DrawText(label, m_width - text_w - kPad, kPad, kFont, kTrailGreen);
-            }
+        // Line 2: neural activity (only when there are neurons).
+        if (!activations.empty())
+        {
+            const std::string line2 = TextFormat(
+                "neurons=%d  active=%d",
+                (int)activations.size(), active_n);
+            DrawText(line2.c_str(), 10, 30, 16, Color{ 80, 160, 255, 255 });
         }
     EndDrawing();
 

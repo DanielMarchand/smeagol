@@ -1,5 +1,6 @@
 #include "SceneRenderer.h"
 #include <rlgl.h>
+#include <algorithm>
 #include <cmath>
 #include <unordered_set>
 #include <vector>
@@ -51,12 +52,12 @@ void SceneRenderer::closeWindow()
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 
-void SceneRenderer::resetCamera(float distance)
+void SceneRenderer::resetCamera()
 {
-    m_camera.position   = { distance,  distance * 0.8f, distance };
+    m_camera.position   = { camera_distance, camera_distance * camera_elevation, camera_distance };
     m_camera.target     = { 0.0f, 0.0f, 0.0f };
     m_camera.up         = { 0.0f, 1.0f, 0.0f };
-    m_camera.fovy       = 45.0f;
+    m_camera.fovy       = camera_fov;
     m_camera.projection = CAMERA_PERSPECTIVE;
 }
 
@@ -253,19 +254,22 @@ void SceneRenderer::drawNeuralOverlay(const Robot&               robot,
     const int N = static_cast<int>(robot.neurons.size());
     if (N == 0) return;
 
-    // ── Layout: ring of neurons above the robot CoM ───────────────────────
-    const Eigen::Vector3d com = robot.centerOfMass();
-    const float ring_r        = std::max(0.07f, N * 0.022f);
-    const float lift          = 0.30f;   // above robot CoM in sim-Z
+    // ── Fixed ring layout in the top-right corner (pure screen space) ─────
+    // The ring never moves regardless of camera or robot position.
+    const float kRadius      = 8.0f;
+    const float kPad         = 14.0f;               // inset from frame edge
+    const float ring_r       = std::max(30.0f, N * 7.0f);  // px, scales with N
+    const float cx           = static_cast<float>(m_width)  - kPad - ring_r;
+    const float cy           = kPad + ring_r;
 
-    std::vector<Vector3> npos(N);
+    std::vector<Vector2> npos(N);
     for (int i = 0; i < N; ++i)
     {
-        const float angle = (2.0f * 3.14159265f / static_cast<float>(N)) * i;
-        const double nx = com.x() + ring_r * std::cos(angle);
-        const double ny = com.y() + ring_r * std::sin(angle);
-        const double nz = com.z() + lift;
-        npos[i] = toRaylib(nx, ny, nz);
+        // Start at top, go clockwise.
+        const float angle = (2.0f * 3.14159265f / static_cast<float>(N)) * i
+                            - 3.14159265f / 2.0f;
+        npos[i] = { cx + ring_r * std::cos(angle),
+                    cy + ring_r * std::sin(angle) };
     }
 
     // Pre-compute per-neuron active flag for wire colouring.
@@ -274,8 +278,19 @@ void SceneRenderer::drawNeuralOverlay(const Robot&               robot,
                && activations[idx] > 0.5;
     };
 
-    // ── Synapse connections (draw first so spheres sit on top) ────────────
-    // Wire colour: blue if the source neuron is firing, grey if silent.
+    // Project a 3D sim-space point to a 2D screen position.
+    auto project = [&](double x, double y, double z) -> Vector2 {
+        return GetWorldToScreen(toRaylib(x, y, z), m_camera);
+    };
+
+    // ── Background panel so the ring is readable over any scene ──────────
+    DrawRectangle(static_cast<int>(cx - ring_r - kRadius - 4),
+                  static_cast<int>(cy - ring_r - kRadius - 4),
+                  static_cast<int>(2 * (ring_r + kRadius) + 8),
+                  static_cast<int>(2 * (ring_r + kRadius) + 8),
+                  Color{ 0, 0, 0, 100 });
+
+    // ── Synapse connections between neurons (drawn first, under circles) ──
     for (int i = 0; i < N; ++i)
     {
         const Eigen::VectorXd& w = robot.neurons[i].synapse_weights;
@@ -284,14 +299,13 @@ void SceneRenderer::drawNeuralOverlay(const Robot&               robot,
         {
             if (std::abs(w(j)) < 0.01) continue;
             const Color c = is_active(i)
-                ? Color{ 80, 140, 255, 220}   // blue  = source neuron firing
-                : Color{100, 100, 100, 160};  // grey  = source neuron silent
-            DrawLine3D(npos[i], npos[j], c);
+                ? Color{ 80, 140, 255, 200}   // blue  = source neuron firing
+                : Color{100, 100, 100, 130};  // grey  = source neuron silent
+            DrawLineEx(npos[i], npos[j], 1.5f, c);
         }
     }
 
-    // ── Actuator connections: neuron sphere → bar midpoint ────────────────
-    // Wire colour: blue if the driving neuron is firing, grey if silent.
+    // ── Actuator connections: neuron circle → projected bar midpoint ──────
     for (const auto& a : robot.actuators)
     {
         if (a.neuron_idx < 0 || a.neuron_idx >= N) continue;
@@ -300,22 +314,31 @@ void SceneRenderer::drawNeuralOverlay(const Robot&               robot,
         const Bar& bar = robot.bars[a.bar_idx];
         const Eigen::Vector3d mid =
             0.5 * (robot.vertices[bar.v1].pos + robot.vertices[bar.v2].pos);
-        const Color wire_c = is_active(a.neuron_idx)
-            ? Color{ 80, 140, 255, 220}   // blue = active
-            : Color{100, 100, 100, 160};  // grey = silent
-        DrawLine3D(npos[a.neuron_idx],
-                   toRaylib(mid.x(), mid.y(), mid.z()),
-                   wire_c);
+        const Vector2 bar2d   = project(mid.x(), mid.y(), mid.z());
+        const Color   wire_c  = is_active(a.neuron_idx)
+            ? Color{ 80, 140, 255, 180}
+            : Color{100, 100, 100, 120};
+        // Dashed-style: draw from neuron edge outward, then a dot at the bar.
+        DrawLineEx(npos[a.neuron_idx], bar2d, 1.0f, wire_c);
+        DrawCircleV(bar2d, 3.0f, wire_c);
     }
 
-    // ── Neuron spheres (drawn last → on top of all lines) ─────────────────
+    // ── Neuron circles (drawn last → on top of all lines) ─────────────────
     for (int i = 0; i < N; ++i)
     {
         const bool active = is_active(i);
-        const Color c = active
-            ? Color{ 50, 120, 255, 255}   // bright blue = firing
-            : Color{ 70,  70,  70, 255};  // dark grey   = silent
-        DrawSphere(npos[i], 0.016f, c);
+        const Color fill = active
+            ? Color{ 50, 120, 255, 255}
+            : Color{ 60,  60,  60, 255};
+        DrawCircleV(npos[i], kRadius, fill);
+        DrawCircleLinesV(npos[i], kRadius,
+                         active ? Color{150, 200, 255, 200}
+                                : Color{160, 160, 160, 120});
+        // Neuron index label.
+        DrawText(TextFormat("%d", i),
+                 static_cast<int>(npos[i].x - (i < 10 ? 3 : 5)),
+                 static_cast<int>(npos[i].y - 4),
+                 8, active ? WHITE : Color{180, 180, 180, 200});
     }
 }
 

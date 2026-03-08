@@ -87,7 +87,7 @@ double FitnessEvaluator::evaluate(const Robot&                  robot,
         while (remaining > 0) {
             const int chunk = std::min(remaining, params_.steps_per_frame);
             sim.applyActuators(chunk);
-            sim.relax(chunk, params_.step_size, /*noise=*/0.0, /*tol=*/0.0);
+            sim.relax(chunk, params_.step_size, params_.noise_amplitude, /*tol=*/0.0);
             remaining -= chunk;
         }
         delay_done += cycle_steps;
@@ -111,7 +111,7 @@ double FitnessEvaluator::evaluate(const Robot&                  robot,
         while (remaining > 0) {
             const int chunk = std::min(remaining, params_.steps_per_frame);
             sim.applyActuators(chunk);
-            sim.relax(chunk, params_.step_size, /*noise=*/0.0, /*tol=*/0.0);
+            sim.relax(chunk, params_.step_size, params_.noise_amplitude, /*tol=*/0.0);
             remaining -= chunk;
         }
         steps_done += cycle_steps;
@@ -131,7 +131,9 @@ double FitnessEvaluator::evaluate(const Robot&                  robot,
 void FitnessEvaluator::renderVideo(Robot robot, const FitnessParams& fp,
                                    const std::string& path,
                                    int fps, int width, int height, bool verbose,
-                                   float render_vertex_radius, float render_bar_radius)
+                                   float render_vertex_radius, float render_bar_radius,
+                                   float camera_distance, float camera_fov, float camera_elevation,
+                                   bool camera_follow)
 {
     Simulator sim = makeSimulator(robot, fp);
 
@@ -151,6 +153,10 @@ void FitnessEvaluator::renderVideo(Robot robot, const FitnessParams& fp,
     vid.setVerbose(verbose);
     vid.render_vertex_radius = render_vertex_radius;
     vid.render_bar_radius    = render_bar_radius;
+    vid.camera_distance      = camera_distance;
+    vid.camera_fov           = camera_fov;
+    vid.camera_elevation     = camera_elevation;
+    vid.camera_follow        = camera_follow;
     int steps_done = 0;
 
     // ── Delay phase (rendered but not counted toward fitness) ─────────────
@@ -165,7 +171,7 @@ void FitnessEvaluator::renderVideo(Robot robot, const FitnessParams& fp,
         while (remaining > 0) {
             const int chunk = std::min(remaining, fp.steps_per_frame);
             sim.applyActuators(chunk);
-            sim.relax(chunk, fp.step_size, 0.0, 0.0);
+            sim.relax(chunk, fp.step_size, fp.noise_amplitude, 0.0);
             remaining   -= chunk;
             steps_done  += chunk;
             sim.copyPositionsBack(robot);
@@ -185,7 +191,7 @@ void FitnessEvaluator::renderVideo(Robot robot, const FitnessParams& fp,
         while (remaining > 0) {
             const int chunk = std::min(remaining, fp.steps_per_frame);
             sim.applyActuators(chunk);
-            sim.relax(chunk, fp.step_size, 0.0, 0.0);
+            sim.relax(chunk, fp.step_size, fp.noise_amplitude, 0.0);
             remaining   -= chunk;
             steps_done  += chunk;
             sim.copyPositionsBack(robot);

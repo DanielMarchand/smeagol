@@ -54,6 +54,29 @@ Simulator::Simulator(const Robot& robot)
     activations_.resize(robot_.neurons.size());
     for (int i = 0; i < static_cast<int>(robot_.neurons.size()); ++i)
         activations_[i] = robot_.neurons[i].activation;
+
+    // ── Precompute topology skip-sets for repulsion ────────────────────────
+    // These sets are based purely on robot topology and never change during
+    // simulation, so building them once here avoids O(N²) or O(B²) work on
+    // every gradient step when repulsion is enabled.
+    const int NV = static_cast<int>(robot_.vertices.size());
+    connected_vertex_pairs_.reserve(robot_.bars.size() * 2);
+    for (const Bar& bar : robot_.bars) {
+        const int a = std::min(bar.v1, bar.v2);
+        const int b = std::max(bar.v1, bar.v2);
+        connected_vertex_pairs_.insert(a * NV + b);
+    }
+
+    const int NB = static_cast<int>(robot_.bars.size());
+    adjacent_bar_pairs_.reserve(NB * 4);
+    for (int i = 0; i < NB; ++i)
+        for (int j = i + 1; j < NB; ++j) {
+            const Bar& bi = robot_.bars[i];
+            const Bar& bj = robot_.bars[j];
+            if (bi.v1 == bj.v1 || bi.v1 == bj.v2 ||
+                bi.v2 == bj.v1 || bi.v2 == bj.v2)
+                adjacent_bar_pairs_.insert(i * NB + j);
+        }
 }
 
 // ── §3.1  Energy function ────────────────────────────────────────────────────
@@ -129,23 +152,12 @@ void Simulator::addVertexRepulsion(Eigen::MatrixX3d& grad) const
     const int N = static_cast<int>(positions.rows());
     if (N < 2) return;
 
-    // Build set of connected vertex indices (skip connected pairs).
-    // Key: min(a,b)*N + max(a,b) — guaranteed unique for N < ~46000.
-    std::unordered_set<int> connected;
-    connected.reserve(robot_.bars.size() * 2);
-    for (const Bar& bar : robot_.bars) {
-        const int a = std::min(bar.v1, bar.v2);
-        const int b = std::max(bar.v1, bar.v2);
-        connected.insert(a * N + b);
-    }
-
     const double r0 = repulse_vertex_min_dist;
-    const double k2 = 2.0 * k_repulse_vertex;  // factor from derivative of (r0-d)^2
+    const double k2 = 2.0 * k_repulse_vertex;
 
     for (int i = 0; i < N - 1; ++i) {
         for (int j = i + 1; j < N; ++j) {
-            // Skip directly connected vertices.
-            if (connected.count(i * N + j)) continue;
+            if (connected_vertex_pairs_.count(i * N + j)) continue;
 
             const Eigen::Vector3d dp = positions.row(i) - positions.row(j);
             const double d = dp.norm();
@@ -208,25 +220,12 @@ void Simulator::addBarRepulsion(Eigen::MatrixX3d& grad) const
     const int B = static_cast<int>(robot_.bars.size());
     if (B < 2) return;
 
-    // Build adjacency set: bar pair (i,j) is adjacent if they share a vertex.
-    // Key: min(i,j)*B + max(i,j).
-    std::unordered_set<int> adjacent;
-    adjacent.reserve(B * 4);
-    for (int i = 0; i < B; ++i)
-        for (int j = i + 1; j < B; ++j) {
-            const Bar& bi = robot_.bars[i];
-            const Bar& bj = robot_.bars[j];
-            if (bi.v1 == bj.v1 || bi.v1 == bj.v2 ||
-                bi.v2 == bj.v1 || bi.v2 == bj.v2)
-                adjacent.insert(i * B + j);
-        }
-
     const double r0 = repulse_bar_min_dist;
     const double k2 = 2.0 * k_repulse_bar;
 
     for (int i = 0; i < B - 1; ++i) {
         for (int j = i + 1; j < B; ++j) {
-            if (adjacent.count(i * B + j)) continue;
+            if (adjacent_bar_pairs_.count(i * B + j)) continue;
 
             const Bar& bi = robot_.bars[i];
             const Bar& bj = robot_.bars[j];
@@ -254,6 +253,64 @@ void Simulator::addBarRepulsion(Eigen::MatrixX3d& grad) const
             grad.row(bi.v2) -= factor * t          * nhat;
             grad.row(bj.v1) += factor * (1.0 - u) * nhat;
             grad.row(bj.v2) += factor * u          * nhat;
+        }
+    }
+}
+
+void Simulator::addVertexBarRepulsion(Eigen::MatrixX3d& grad) const
+{
+    const int NV = static_cast<int>(positions.rows());
+    const int NB = static_cast<int>(robot_.bars.size());
+    if (NV < 1 || NB < 1) return;
+
+    const double r0 = repulse_bar_min_dist;
+    const double k2 = 2.0 * k_repulse_bar;
+
+    // Returns true if vertex indices a and b are endpoints of the same bar.
+    auto are_connected = [&](int a, int bv) -> bool {
+        const int lo = std::min(a, bv), hi = std::max(a, bv);
+        return connected_vertex_pairs_.count(lo * NV + hi) != 0;
+    };
+
+    for (int i = 0; i < NV; ++i) {
+        const Eigen::Vector3d P = positions.row(i);
+
+        for (int j = 0; j < NB; ++j) {
+            const Bar& b = robot_.bars[j];
+            // Skip if vertex is an endpoint of this bar — always d=0 at joint.
+            if (b.v1 == i || b.v2 == i) continue;
+
+            const Eigen::Vector3d A  = positions.row(b.v1);
+            const Eigen::Vector3d Bv = positions.row(b.v2);
+            const Eigen::Vector3d AB = Bv - A;
+            const double ab2 = AB.dot(AB);
+            if (ab2 < 1e-14) continue;  // degenerate zero-length bar
+
+            const double t = std::clamp(AB.dot(P - A) / ab2, 0.0, 1.0);
+
+            // If the closest point clamped to an endpoint AND vertex i is
+            // topologically connected to that endpoint (i.e. they share a
+            // joint), the approach is due to angle closure, not genuine bar
+            // penetration.  Skip to avoid spurious anti-hinge forces.
+            // When the closest point falls in the bar's interior (t ∈ (0,1))
+            // the vertex is truly penetrating the bar — repel in all cases.
+            if (t < 1e-6       && are_connected(i, b.v1)) continue;
+            if (t > 1.0 - 1e-6 && are_connected(i, b.v2)) continue;
+
+            const Eigen::Vector3d Q  = A + t * AB;
+            const Eigen::Vector3d PQ = P - Q;
+            const double d = PQ.norm();
+            if (d >= r0 || d < 1e-14) continue;
+
+            // nhat points from bar toward vertex.
+            const Eigen::Vector3d nhat = PQ / d;
+            const double factor = k2 * (r0 - d);
+
+            // Push vertex away from bar.
+            grad.row(i)    -= factor *             nhat;
+            // Push bar endpoints away from vertex (chain rule through Q).
+            grad.row(b.v1) += factor * (1.0 - t) * nhat;
+            grad.row(b.v2) += factor * t          * nhat;
         }
     }
 }
@@ -322,6 +379,7 @@ Eigen::MatrixX3d Simulator::computeGradient() const
     if (k_repulse_bar > 0.0) {
         const auto t0 = Clock::now();
         addBarRepulsion(grad);
+        addVertexBarRepulsion(grad);
         timing_bar_repulse_ns_ +=
             static_cast<double>(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count());

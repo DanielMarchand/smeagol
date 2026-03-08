@@ -1,4 +1,5 @@
 #pragma once
+#include <unordered_set>
 
 #include "Robot.h"
 #include "Materials.h"
@@ -358,11 +359,27 @@ private:
     /** Add bar-bar repulsion contributions to grad (timed). */
     void addBarRepulsion(Eigen::MatrixX3d& grad) const;
 
+    /** Add vertex-bar repulsion contributions to grad.
+     *  Catches cases like a vertex passing through an opposite bar
+     *  (e.g. triangle collapsing to a line) that bar-bar repulsion misses
+     *  because those pairs share a vertex and are therefore marked adjacent. */
+    void addVertexBarRepulsion(Eigen::MatrixX3d& grad) const;
+
     mutable double timing_vertex_repulse_ns_ = 0.0;  ///< cumulative ns for vv repulsion
     mutable double timing_bar_repulse_ns_    = 0.0;  ///< cumulative ns for bb repulsion
     mutable long   timing_calls_             = 0;    ///< number of computeGradient() calls
 
     std::mt19937 rng_;   ///< PRNG for relaxation noise
+
+    /// Vertex pairs connected by a bar: key = min(a,b)*N + max(a,b).
+    /// Built once at construction; used by addVertexRepulsion() to skip
+    /// directly-connected pairs without rebuilding every gradient step.
+    std::unordered_set<int> connected_vertex_pairs_;
+
+    /// Non-ordered bar pairs that share a vertex: key = i*B + j (i < j).
+    /// Built once at construction; used by addBarRepulsion() to skip
+    /// adjacent bars without rebuilding every gradient step.
+    std::unordered_set<int> adjacent_bar_pairs_;
 
     /**
      * Nominal (genotype) rest lengths, shape == robot.bars.size().

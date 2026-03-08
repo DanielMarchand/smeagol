@@ -150,6 +150,8 @@ EvolverParams EvolverParams::fromYAML(const std::string& path)
             p.fitness.k_repulse_bar = f["k_repulse_bar"].as<double>();
         if (f["repulse_bar_min_dist"])
             p.fitness.repulse_bar_min_dist = f["repulse_bar_min_dist"].as<double>();
+        if (f["noise_amplitude"])
+            p.fitness.noise_amplitude = f["noise_amplitude"].as<double>();
     }
 
     if (const auto& m = node["mutation"])
@@ -174,6 +176,10 @@ EvolverParams EvolverParams::fromYAML(const std::string& path)
         if (v["min_fitness"])     p.video.min_fitness     = v["min_fitness"].as<double>();
         if (v["render_vertex_radius"]) p.video.render_vertex_radius = v["render_vertex_radius"].as<float>();
         if (v["render_bar_radius"])    p.video.render_bar_radius    = v["render_bar_radius"].as<float>();
+        if (v["camera_distance"])  p.video.camera_distance  = v["camera_distance"].as<float>();
+        if (v["camera_fov"])       p.video.camera_fov       = v["camera_fov"].as<float>();
+        if (v["camera_elevation"]) p.video.camera_elevation = v["camera_elevation"].as<float>();
+        if (v["camera_follow"])    p.video.camera_follow    = v["camera_follow"].as<bool>();
         // Legacy: old configs had video.steps_per_frame for capture granularity.
         // Migrate it to fitness.steps_per_frame (new location).
         if (v["steps_per_frame"] && p.fitness.steps_per_frame == FitnessParams{}.steps_per_frame)
@@ -216,6 +222,7 @@ void EvolverParams::toYAML(const std::string& path) const
     out << YAML::Key << "repulse_vertex_min_dist" << YAML::Value << fitness.repulse_vertex_min_dist;
     out << YAML::Key << "k_repulse_bar"           << YAML::Value << fitness.k_repulse_bar;
     out << YAML::Key << "repulse_bar_min_dist"    << YAML::Value << fitness.repulse_bar_min_dist;
+    out << YAML::Key << "noise_amplitude"         << YAML::Value << fitness.noise_amplitude;
     out << YAML::EndMap;  // fitness
     out << YAML::Key << "mutation"        << YAML::Value << YAML::BeginMap;
     mutation.toYAML(out);
@@ -235,6 +242,10 @@ void EvolverParams::toYAML(const std::string& path) const
     out << YAML::Key << "min_fitness"     << YAML::Value << video.min_fitness;
     out << YAML::Key << "render_vertex_radius" << YAML::Value << video.render_vertex_radius;
     out << YAML::Key << "render_bar_radius"    << YAML::Value << video.render_bar_radius;
+    out << YAML::Key << "camera_distance"      << YAML::Value << video.camera_distance;
+    out << YAML::Key << "camera_fov"           << YAML::Value << video.camera_fov;
+    out << YAML::Key << "camera_elevation"     << YAML::Value << video.camera_elevation;
+    out << YAML::Key << "camera_follow"        << YAML::Value << video.camera_follow;
     out << YAML::EndMap;  // video
     out << YAML::EndMap;  // root
 
@@ -529,7 +540,11 @@ void Evolver::maybeSavePeriodicVideo(int eval_num)
                                       params_.video.width, params_.video.height,
                                       params_.video.verbose,
                                       params_.video.render_vertex_radius,
-                                      params_.video.render_bar_radius);
+                                      params_.video.render_bar_radius,
+                                      params_.video.camera_distance,
+                                      params_.video.camera_fov,
+                                      params_.video.camera_elevation,
+                                      params_.video.camera_follow);
         std::cout << "[Evolver] periodic video \u2192 " << fs::absolute(stem + ".mp4").string() << "\n";
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] periodic video skipped at eval " << eval_num
@@ -642,6 +657,9 @@ void Evolver::maybeSaveSnapshot(int eval_num)
         snap.setVerbose(params_.video.verbose);
         snap.render_vertex_radius = params_.video.render_vertex_radius;
         snap.render_bar_radius    = params_.video.render_bar_radius;
+        snap.camera_distance      = params_.video.camera_distance;
+        snap.camera_fov           = params_.video.camera_fov;
+        snap.camera_elevation     = params_.video.camera_elevation;
         snap.render(population_[best_idx_], stem + ".png");
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] snapshot PNG skipped at eval " << eval_num
@@ -660,7 +678,11 @@ void Evolver::maybeSaveSnapshot(int eval_num)
                                       params_.video.width, params_.video.height,
                                       params_.video.verbose,
                                       params_.video.render_vertex_radius,
-                                      params_.video.render_bar_radius);
+                                      params_.video.render_bar_radius,
+                                      params_.video.camera_distance,
+                                      params_.video.camera_fov,
+                                      params_.video.camera_elevation,
+                                      params_.video.camera_follow);
         std::cout << "[Evolver] video saved → " << fs::absolute(stem + ".mp4").string() << "\n";
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] video MP4 skipped at eval " << eval_num

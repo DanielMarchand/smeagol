@@ -15,10 +15,11 @@ void SnapshotRenderer::render(const Robot& robot, const std::string& output_path
 
     // Position the camera to get a good isometric-ish view of the robot
     const Eigen::Vector3d com = robot.centerOfMass();
+    camera_distance = 0.8f;  // overridden by Evolver when called via renderRecord
+    resetCamera();
     lookAt(static_cast<float>(com.x()),
            static_cast<float>(com.z()),
            static_cast<float>(-com.y()));
-    resetCamera(0.8f);
 
     // Render exactly one frame
     BeginDrawing();
@@ -26,8 +27,9 @@ void SnapshotRenderer::render(const Robot& robot, const std::string& output_path
         BeginMode3D(m_camera);
             drawFloor(30, 0.1f);
             drawRobot(robot);
-            drawNeuralOverlay(robot, std::vector<double>{});
         EndMode3D();
+
+        drawNeuralOverlay(robot, std::vector<double>{});
 
         // Overlay: robot summary in corner
         DrawText(TextFormat("Robot id=%llu  v=%d  b=%d  n=%d  a=%d",

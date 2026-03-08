@@ -74,6 +74,12 @@ struct FitnessParams
     double k_repulse_bar           = 0.0;
     /// Minimum bar clearance before bar repulsion fires [m].
     double repulse_bar_min_dist    = 0.01;
+
+    /// Half-width of uniform position noise injected every relaxation step [m].
+    /// Prevents the solver from settling in unstable equilibria (e.g. a robot
+    /// balanced on a vertex tip).  Corresponds to the "noise" term described
+    /// in Lipson & Pollack (2000).  Default 1e-4 m (0.1 mm).
+    double noise_amplitude = 1e-4;
 };
 
 /**
@@ -160,7 +166,11 @@ public:
                             int width = 1280, int height = 720,
                             bool verbose = false,
                             float render_vertex_radius = 0.010f,
-                            float render_bar_radius    = 0.010f);
+                            float render_bar_radius    = 0.010f,
+                            float camera_distance  = 0.8f,
+                            float camera_fov       = 45.0f,
+                            float camera_elevation = 0.8f,
+                            bool  camera_follow    = true);
 
     const Params& params() const { return params_; }
 

@@ -63,13 +63,18 @@ public:
     /// Visual cylinder radius for bars [m].  Set to repulse_bar_min_dist/2.
     float render_bar_radius    = 0.010f;
 
+    // ── Camera settings (set before the first frame) ──────────────────────
+    float camera_distance  = 1.5f;  ///< distance from target [m]
+    float camera_fov       = 45.0f; ///< perspective field of view [degrees]
+    float camera_elevation = 0.8f;  ///< vertical offset as a fraction of lateral distance
+    bool  camera_follow    = true;  ///< if true, camera tracks robot CoM; if false, fixed at origin
+
     // ── Camera control ────────────────────────────────────────────────────
 
     /**
-     * Reset the camera to the default orbital position distance metres
-     * above and behind the world origin.
+     * Reset the camera to the orbital position defined by the camera_* fields.
      */
-    void resetCamera(float distance = 1.5f);
+    void resetCamera();
 
     /**
      * Point the camera at a specific world position (Z-up coords).
@@ -145,6 +150,13 @@ protected:
      *     actuated bar (using Robot::bars and Robot::actuators).
      *
      * Must be called inside a BeginMode3D / EndMode3D block.
+     *
+     * Projects all 3D positions to screen space so the overlay always
+     * renders within the frame.  Neuron ring positions are clamped to the
+     * screen edges; bar-midpoint connection lines are drawn to their true
+     * projected position (may extend off-screen for off-frame bars).
+     *
+     * Must be called AFTER EndMode3D() but still inside BeginDrawing().
      *
      * @param robot       Robot topology (neurons, actuators, bar geometry).
      * @param activations Runtime activation values from Simulator::activations_.
