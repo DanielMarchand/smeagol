@@ -130,7 +130,7 @@ void SceneRenderer::runInteractive(const Robot& robot, int floor_slices)
         UpdateCamera(&m_camera, CAMERA_ORBITAL);
 
         beginScene();
-        drawFloor(floor_slices, 0.1f);
+        drawFloor(floor_grid_slices, floor_grid_spacing);
         drawRobot(robot);
 
         // HUD
@@ -203,15 +203,17 @@ static Color actuatorBrightColor(int idx)
     return palette[(static_cast<uint32_t>(idx) * 2654435761u) % static_cast<uint32_t>(N)];
 }
 
-void SceneRenderer::drawRobot(const Robot& robot,
-                              Color vertex_color,
-                              Color /*bar_color*/)
+void SceneRenderer::drawRobot(const Robot&               robot,
+                              const std::vector<double>& rest_lengths,
+                              Color                      vertex_color)
 {
-    // Build set of actuated bar indices for O(1) lookup.
+    // Build map: bar_idx → actuator index, for O(1) lookup.
     std::unordered_set<int> actuated;
     actuated.reserve(robot.actuators.size());
     for (const auto& a : robot.actuators)
         actuated.insert(a.bar_idx);
+
+    const bool have_rest = !rest_lengths.empty();
 
     // ── bars ──────────────────────────────────────────────────────────────
     for (int bi = 0; bi < static_cast<int>(robot.bars.size()); ++bi) {
@@ -226,10 +228,62 @@ void SceneRenderer::drawRobot(const Robot& robot,
         Vector3 rp2 = toRaylib(p2.x(), p2.y(), p2.z());
 
         if (actuated.count(bi)) {
-            DrawCylinderEx(rp1, rp2,
-                           render_bar_radius,
-                           render_bar_radius,
-                           8, actuatorBrightColor(bi));
+            const Color bright = actuatorBrightColor(bi);
+
+            if (have_rest && bi < static_cast<int>(rest_lengths.size())) {
+                // ── Two-cylinder actuator rendering ───────────────────────
+                // Fat housing: starts at rp1, extends base_rest_length along
+                // the bar axis.  Represents the unextended housing; never
+                // changes shape regardless of neural activity.
+                //
+                // Thin piston rod: spans full v1→v2 geometry.  Protrudes past
+                // the housing end when the actuator is extended above base.
+
+                // Compute unit direction in Raylib space.
+                const float dx = rp2.x - rp1.x;
+                const float dy = rp2.y - rp1.y;
+                const float dz = rp2.z - rp1.z;
+                const float geom_len = std::sqrt(dx*dx + dy*dy + dz*dz);
+
+                const float base_L = static_cast<float>(bar.rest_length);
+
+                if (geom_len > 1e-6f) {
+                    const float inv = base_L / geom_len;
+                    const Vector3 housing_end = {
+                        rp1.x + dx * inv,
+                        rp1.y + dy * inv,
+                        rp1.z + dz * inv
+                    };
+
+                    // Housing: thick, 50% darkened actuator colour.
+                    const Color housing_c = {
+                        static_cast<unsigned char>(bright.r / 2),
+                        static_cast<unsigned char>(bright.g / 2),
+                        static_cast<unsigned char>(bright.b / 2),
+                        255
+                    };
+                    DrawCylinderEx(rp1, housing_end,
+                                   render_bar_radius * actuator_housing_radius_scale,
+                                   render_bar_radius * actuator_housing_radius_scale,
+                                   8, housing_c);
+
+                    // Piston rod: thin, full geometry, bright colour.
+                    DrawCylinderEx(rp1, rp2,
+                                   render_bar_radius * actuator_rod_radius_scale,
+                                   render_bar_radius * actuator_rod_radius_scale,
+                                   8, bright);
+                } else {
+                    // Degenerate bar: fall back to single cylinder.
+                    DrawCylinderEx(rp1, rp2,
+                                   render_bar_radius, render_bar_radius,
+                                   8, bright);
+                }
+            } else {
+                // No rest-length data: single bright cylinder.
+                DrawCylinderEx(rp1, rp2,
+                               render_bar_radius, render_bar_radius,
+                               8, bright);
+            }
         } else {
             // ── Structural bar: single dark muted cylinder ────────────────
             DrawCylinderEx(rp1, rp2,
@@ -239,10 +293,52 @@ void SceneRenderer::drawRobot(const Robot& robot,
         }
     }
 
-    // ── vertices (drawn on top of bars) ───────────────────────────────────
+    // ── vertices ──────────────────────────────────────────────────────────
+    // Pass 1: blob shadows – drawn before spheres so they appear under them.
+    if (floor_shadow_height > 0.0f) {
+        for (const auto& vertex : robot.vertices) {
+            const float h = static_cast<float>(vertex.pos.z());
+            if (h >= floor_shadow_height) continue;
+            // t = 1 when vertex is on the floor, 0 at threshold height.
+            const float t     = std::max(0.0f, 1.0f - h / floor_shadow_height);
+            const unsigned char alpha = static_cast<unsigned char>(150.0f * t);
+            const float sr    = render_vertex_radius * (1.2f + 0.6f * t);
+            const Vector3 sp  = { static_cast<float>(vertex.pos.x()),
+                                  0.001f,
+                                  static_cast<float>(-vertex.pos.y()) };
+            const Vector3 sp2 = { static_cast<float>(vertex.pos.x()),
+                                  0.002f,
+                                  static_cast<float>(-vertex.pos.y()) };
+            DrawCylinderEx(sp, sp2, sr, sr, 12, Color{ 0, 0, 0, alpha });
+        }
+    }
+
+    // Pass 2: vertex spheres (always normal colour).
     for (const auto& vertex : robot.vertices) {
         Vector3 rp = toRaylib(vertex.pos.x(), vertex.pos.y(), vertex.pos.z());
         DrawSphere(rp, render_vertex_radius, vertex_color);
+    }
+
+    // Pass 3: floor-clip warning disks.
+    // A solid red/orange disk is drawn flat on the floor under any vertex whose
+    // centre has sunk below floor_contact_threshold.  The disk grows and
+    // brightens as penetration deepens.
+    for (const auto& vertex : robot.vertices) {
+        const float h = static_cast<float>(vertex.pos.z());
+        if (h >= floor_contact_threshold) continue;
+        // t = 0 just touching, 1 fully buried (centre at -render_vertex_radius).
+        const float t = std::clamp(
+            -h / render_vertex_radius, 0.0f, 1.0f);
+        const float disk_r = render_vertex_radius * (0.6f + 1.2f * t);
+        const unsigned char alpha = static_cast<unsigned char>(180 + 75 * t);
+        const Color disk_c = { 255,
+                               static_cast<unsigned char>(160 - 130 * t),
+                               0, alpha };
+        const Vector3 centre = { static_cast<float>(vertex.pos.x()),
+                                 0.0f,
+                                 static_cast<float>(-vertex.pos.y()) };
+        const Vector3 centre2 = { centre.x, 0.001f, centre.z };
+        DrawCylinderEx(centre, centre2, disk_r, disk_r, 12, disk_c);
     }
 }
 

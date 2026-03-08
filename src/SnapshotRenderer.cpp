@@ -25,7 +25,7 @@ void SnapshotRenderer::render(const Robot& robot, const std::string& output_path
     BeginDrawing();
         ClearBackground({ 30, 30, 30, 255 });
         BeginMode3D(m_camera);
-            drawFloor(30, 0.1f);
+            drawFloor(floor_grid_slices, floor_grid_spacing);
             drawRobot(robot);
         EndMode3D();
 

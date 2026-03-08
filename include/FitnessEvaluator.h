@@ -170,7 +170,12 @@ public:
                             float camera_distance  = 0.8f,
                             float camera_fov       = 45.0f,
                             float camera_elevation = 0.8f,
-                            bool  camera_follow    = true);
+                            bool  camera_follow    = true,
+                            float floor_grid_spacing = 0.01f,
+                            float actuator_housing_radius_scale = 2.0f,
+                            float actuator_rod_radius_scale     = 0.65f,
+                            float floor_contact_threshold = 0.010f,
+                            float floor_shadow_height     = 0.05f);
 
     const Params& params() const { return params_; }
 

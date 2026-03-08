@@ -85,9 +85,17 @@ public:
      * @param sim_time    Simulation time [s].
      * @param activations Neuron activations from Simulator::activations_.
      */
+    /**
+     * @param rest_lengths  Simulator::rest_lengths_ — current per-bar rest
+     *                      lengths used to render the two-cylinder actuator
+     *                      visualisation (fat housing + thin piston rod).
+     *                      Pass an empty vector to fall back to the plain
+     *                      single-cylinder rendering.
+     */
     void addFrame(const Robot&               robot,
                   double                     sim_time,
-                  const std::vector<double>& activations);
+                  const std::vector<double>& activations,
+                  const std::vector<double>& rest_lengths = {});
 
     /**
      * @brief Compile accumulated frames into an MP4 and clean up.
@@ -138,4 +146,7 @@ private:
     /// Centre-of-mass positions recorded once per addFrame call (Z-up coords).
     /// Used to draw the 3D CoM trail and compute live displacement in the HUD.
     std::vector<Eigen::Vector3d> com_trail_;
+
+    /// Current per-bar rest lengths passed to drawRobot for two-cylinder rendering.
+    std::vector<double> rest_lengths_;
 };

@@ -128,6 +128,7 @@ MutatorParams MutatorParams::fromYAML(const YAML::Node& n)
     if (n["new_synapse_weight_max"]) p.new_synapse_weight_max = n["new_synapse_weight_max"].as<double>();
     if (n["new_bar_stiffness_min"])  p.new_bar_stiffness_min  = n["new_bar_stiffness_min"].as<double>();
     if (n["new_bar_stiffness_max"])  p.new_bar_stiffness_max  = n["new_bar_stiffness_max"].as<double>();
+    if (n["new_vertex_min_z"])       p.new_vertex_min_z       = n["new_vertex_min_z"].as<double>();
     return p;
 }
 
@@ -162,6 +163,7 @@ void MutatorParams::toYAML(YAML::Emitter& out) const
     out << YAML::Key << "new_synapse_weight_max"<< YAML::Value << new_synapse_weight_max;
     out << YAML::Key << "new_bar_stiffness_min" << YAML::Value << new_bar_stiffness_min;
     out << YAML::Key << "new_bar_stiffness_max" << YAML::Value << new_bar_stiffness_max;
+    out << YAML::Key << "new_vertex_min_z"      << YAML::Value << new_vertex_min_z;
 }
 
 // ── MutationRecord::describe() ───────────────────────────────────────────────
@@ -535,10 +537,10 @@ bool Mutator::addBarNew(Robot& robot, std::mt19937& rng, const MutatorParams& pa
 
     if (nv == 0) {
         // Bootstrap: create first two vertices from scratch above the floor.
-        robot.addVertex(Vertex(0.0, 0.0, kFloorZ));
+        robot.addVertex(Vertex(0.0, 0.0, params.new_vertex_min_z));
         const Eigen::Vector3d dir = randomDirection(rng);
         Eigen::Vector3d p1 = dir * len;
-        p1.z() = std::max(p1.z(), kFloorZ);
+        p1.z() = std::max(p1.z(), params.new_vertex_min_z);
         robot.addVertex(Vertex(p1));
         const double k0 = uniformReal(rng, params.new_bar_stiffness_min, params.new_bar_stiffness_max);
         robot.addBar(Bar(0, 1, len, k0));
@@ -546,7 +548,7 @@ bool Mutator::addBarNew(Robot& robot, std::mt19937& rng, const MutatorParams& pa
     }
     const int v = uniformInt(rng, 0, nv - 1);
     Eigen::Vector3d new_pos = robot.vertices[v].pos + randomDirection(rng) * len;
-    new_pos.z() = std::max(new_pos.z(), kFloorZ);
+    new_pos.z() = std::max(new_pos.z(), params.new_vertex_min_z);
     const int v_new = robot.addVertex(Vertex(new_pos));
     const double k_a = uniformReal(rng, params.new_bar_stiffness_min, params.new_bar_stiffness_max);
     robot.addBar(Bar(v, v_new, len, k_a));
@@ -834,7 +836,7 @@ bool Mutator::splitElement(Robot& robot, std::mt19937& rng, const MutatorParams&
             uniformReal(rng, -o, o),
             uniformReal(rng, -o, o));
         Eigen::Vector3d new_pos = robot.vertices[v].pos + offset;
-        new_pos.z() = std::max(new_pos.z(), kFloorZ);
+        new_pos.z() = std::max(new_pos.z(), params.new_vertex_min_z);
         const int v_new = robot.addVertex(Vertex(new_pos));
         const double len = (offset.norm() < 1e-6) ? 0.01 : offset.norm();
         const double k_s = uniformReal(rng, params.new_bar_stiffness_min, params.new_bar_stiffness_max);
@@ -854,7 +856,7 @@ bool Mutator::splitElement(Robot& robot, std::mt19937& rng, const MutatorParams&
         const Eigen::Vector3d mid =
             (robot.vertices[v1].pos + robot.vertices[v2].pos) * 0.5;
         Eigen::Vector3d safe_mid = mid;
-        safe_mid.z() = std::max(safe_mid.z(), kFloorZ);
+        safe_mid.z() = std::max(safe_mid.z(), params.new_vertex_min_z);
         const int v_mid = robot.addVertex(Vertex(safe_mid));
 
         std::vector<std::pair<int, double>> saved;

@@ -66,8 +66,10 @@ void VideoRenderer::addFrame(const Robot& robot, double sim_time)
 
 void VideoRenderer::addFrame(const Robot&               robot,
                              double                     sim_time,
-                             const std::vector<double>& activations)
+                             const std::vector<double>& activations,
+                             const std::vector<double>& rest_lengths)
 {
+    rest_lengths_ = rest_lengths;
     // Record CoM for trail + displacement HUD (Z-up simulation coords)
     const Eigen::Vector3d com = robot.centerOfMass();
     com_trail_.push_back(com);
@@ -81,8 +83,8 @@ void VideoRenderer::addFrame(const Robot&               robot,
     BeginDrawing();
         ClearBackground({ 30, 30, 30, 255 });
         BeginMode3D(m_camera);
-            drawFloor(30, 0.1f);
-            drawRobot(robot);
+            drawFloor(floor_grid_slices, floor_grid_spacing);
+            drawRobot(robot, rest_lengths_);
             drawComTrail(com_trail_);
         EndMode3D();
 

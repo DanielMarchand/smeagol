@@ -179,7 +179,12 @@ EvolverParams EvolverParams::fromYAML(const std::string& path)
         if (v["camera_distance"])  p.video.camera_distance  = v["camera_distance"].as<float>();
         if (v["camera_fov"])       p.video.camera_fov       = v["camera_fov"].as<float>();
         if (v["camera_elevation"]) p.video.camera_elevation = v["camera_elevation"].as<float>();
-        if (v["camera_follow"])    p.video.camera_follow    = v["camera_follow"].as<bool>();
+        if (v["camera_follow"])     p.video.camera_follow     = v["camera_follow"].as<bool>();
+        if (v["floor_grid_spacing"]) p.video.floor_grid_spacing = v["floor_grid_spacing"].as<float>();
+        if (v["actuator_housing_radius_scale"]) p.video.actuator_housing_radius_scale = v["actuator_housing_radius_scale"].as<float>();
+        if (v["actuator_rod_radius_scale"])     p.video.actuator_rod_radius_scale     = v["actuator_rod_radius_scale"].as<float>();
+        if (v["floor_contact_threshold"])       p.video.floor_contact_threshold       = v["floor_contact_threshold"].as<float>();
+        if (v["floor_shadow_height"])           p.video.floor_shadow_height           = v["floor_shadow_height"].as<float>();
         // Legacy: old configs had video.steps_per_frame for capture granularity.
         // Migrate it to fitness.steps_per_frame (new location).
         if (v["steps_per_frame"] && p.fitness.steps_per_frame == FitnessParams{}.steps_per_frame)
@@ -246,6 +251,11 @@ void EvolverParams::toYAML(const std::string& path) const
     out << YAML::Key << "camera_fov"           << YAML::Value << video.camera_fov;
     out << YAML::Key << "camera_elevation"     << YAML::Value << video.camera_elevation;
     out << YAML::Key << "camera_follow"        << YAML::Value << video.camera_follow;
+    out << YAML::Key << "floor_grid_spacing"          << YAML::Value << video.floor_grid_spacing;
+    out << YAML::Key << "actuator_housing_radius_scale" << YAML::Value << video.actuator_housing_radius_scale;
+    out << YAML::Key << "actuator_rod_radius_scale"     << YAML::Value << video.actuator_rod_radius_scale;
+    out << YAML::Key << "floor_contact_threshold"       << YAML::Value << video.floor_contact_threshold;
+    out << YAML::Key << "floor_shadow_height"           << YAML::Value << video.floor_shadow_height;
     out << YAML::EndMap;  // video
     out << YAML::EndMap;  // root
 
@@ -544,7 +554,12 @@ void Evolver::maybeSavePeriodicVideo(int eval_num)
                                       params_.video.camera_distance,
                                       params_.video.camera_fov,
                                       params_.video.camera_elevation,
-                                      params_.video.camera_follow);
+                                      params_.video.camera_follow,
+                                      params_.video.floor_grid_spacing,
+                                      params_.video.actuator_housing_radius_scale,
+                                      params_.video.actuator_rod_radius_scale,
+                                      params_.video.floor_contact_threshold,
+                                      params_.video.floor_shadow_height);
         std::cout << "[Evolver] periodic video \u2192 " << fs::absolute(stem + ".mp4").string() << "\n";
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] periodic video skipped at eval " << eval_num
@@ -659,7 +674,12 @@ void Evolver::maybeSaveSnapshot(int eval_num)
         snap.render_bar_radius    = params_.video.render_bar_radius;
         snap.camera_distance      = params_.video.camera_distance;
         snap.camera_fov           = params_.video.camera_fov;
-        snap.camera_elevation     = params_.video.camera_elevation;
+        snap.camera_elevation      = params_.video.camera_elevation;
+        snap.floor_grid_spacing              = params_.video.floor_grid_spacing;
+        snap.actuator_housing_radius_scale   = params_.video.actuator_housing_radius_scale;
+        snap.actuator_rod_radius_scale       = params_.video.actuator_rod_radius_scale;
+        snap.floor_contact_threshold         = params_.video.floor_contact_threshold;
+        snap.floor_shadow_height             = params_.video.floor_shadow_height;
         snap.render(population_[best_idx_], stem + ".png");
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] snapshot PNG skipped at eval " << eval_num
@@ -682,7 +702,12 @@ void Evolver::maybeSaveSnapshot(int eval_num)
                                       params_.video.camera_distance,
                                       params_.video.camera_fov,
                                       params_.video.camera_elevation,
-                                      params_.video.camera_follow);
+                                      params_.video.camera_follow,
+                                      params_.video.floor_grid_spacing,
+                                      params_.video.actuator_housing_radius_scale,
+                                      params_.video.actuator_rod_radius_scale,
+                                      params_.video.floor_contact_threshold,
+                                      params_.video.floor_shadow_height);
         std::cout << "[Evolver] video saved → " << fs::absolute(stem + ".mp4").string() << "\n";
     } catch (const std::exception& e) {
         std::cerr << "[Evolver] video MP4 skipped at eval " << eval_num

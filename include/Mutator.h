@@ -73,6 +73,10 @@ struct MutatorParams
     // ── stiffness range for new bars added by mutations ──────────────────────────
     double new_bar_stiffness_min = 10000.0;  ///< min stiffness k [N/m] for new bars
     double new_bar_stiffness_max = 100000.0; ///< max stiffness k [N/m] for new bars
+    /// Minimum Z coordinate [m] for any new vertex created by a mutation.
+    /// Acts as a floor: computed positions below this are lifted to this value.
+    /// Default 0.01 m places new vertices just above the floor.
+    double new_vertex_min_z = 0.01;
     /** Load all fields from a YAML mapping node (used as a sub-node of the
      *  top-level config).  Any field absent in the node keeps its default. */
     static MutatorParams fromYAML(const YAML::Node& node);

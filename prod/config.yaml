@@ -12,7 +12,7 @@ max_evaluations:  100000
 seed:             0          # 0 = seed from std::random_device (different each run)
 output_base_dir:  runs/ # timestamped run dirs are created here
 #run_dir:          run_20260306_000952  # leaf name only — full path = output_base_dir/run_dir
-record_min_improvement: 0.01  # new record must beat old by at least this many metres
+record_min_improvement: 0.01 # 0.01  # new record must beat old by at least this many metres
 resume:           false         # set run_dir above and resume: true to continue a run
 
 report_interval: 50
@@ -71,13 +71,13 @@ mutation:
   p_remove_bar:       0.005  # remove a random bar (connectivity-guarded)
   p_add_bar_bridge:   0.010  # Strategy B: connect two existing unconnected vertices
   p_remove_bar_edge:  0.010  # reverse of Strategy A: remove a leaf bar + leaf vertex
-  p_add_neuron:       0.005  # add a fully-connected neuron
-  p_remove_neuron:    0.005  # remove a random neuron
+  p_add_neuron:       0.010  # add a fully-connected neuron
+  p_remove_neuron:    0.010  # remove a random neuron
   p_split_vertex:     0.03
   p_join_vertex:      0.03
-  p_attach_neuron:    0.03   # attach a neuron to an unactuated bar
-  p_detach_neuron:    0.03   # detach all actuators from an actuated bar
-  p_rewire:           0.01
+  p_attach_neuron:    0.015   # attach a neuron to an unactuated bar
+  p_detach_neuron:    0.015   # detach all actuators from an actuated bar
+  p_rewire:           0.00
   p_perturb:          0.10
   num_method_retries: 1000     # per-method retry limit before whole mutation is cloned
 
@@ -85,14 +85,15 @@ mutation:
   perturb_threshold_mag: 0.50
   perturb_weight_mag:    0.50
 
-  bar_length_min: 0.02 #0.02
-  bar_length_max: 0.5 #0.10
+  bar_length_min: 0.04 #0.02
+  bar_length_max: 0.25 #0.10
+
   threshold_min:  0.00
   threshold_max:  2.00
 
-  perturb_bar_grow_only_below: 0.03  # bars shorter than this only grow when perturbed
-  split_bar_min_length:         0.04  # bars shorter than this are never bisected
-  split_vertex_offset: 0.02
+  perturb_bar_grow_only_below: 0.04  # bars shorter than this only grow when perturbed
+  split_bar_min_length:         0.08  # bars shorter than this are never bisected
+  split_vertex_offset: 0.04
   actuator_range_max:  0.04
 
   new_synapse_weight_min: -1.00
@@ -100,23 +101,24 @@ mutation:
 
   new_bar_stiffness_min: 5    # stiffness range for bars created by mutations [N/m]
   new_bar_stiffness_max: 5
+  new_vertex_min_z: 0.01       # minimum Z [m] for any new vertex; acts as a floor clamp (default = 1 cm above floor)
 
 # ── Fitness — only used when evaluate_final: true ─────────────────────────────
 # Use a shorter run than prod so the final eval completes quickly.
 
 fitness:
-  num_steps:       5000000 
+  num_steps:       700000 
   # Steps (out of num_steps) to use as a settling window before fitness is
   # measured. Total physics run = num_steps; fitness measured over the last
   # (num_steps - delay_steps). 0 = disabled (default).
-  delay_steps:     1000000   # e.g. 6 settling ticks × spc=1000000
+  delay_steps:     100000   # e.g. 6 settling ticks × spc=1000000
   steps_per_cycle: 50000  # physics steps per neural tick
-  steps_per_frame: 50000 # before was same as per cycle # physics steps per video frame (= old video.steps_per_frame)
+  steps_per_frame: 5000 # before was same as per cycle # physics steps per video frame (= old video.steps_per_frame)
   step_size:       1.0e-2
-  gravity:         9.81        # gravitational acceleration [m/s²]
+  gravity:         9.81e4 #9.81        # gravitational acceleration [m/s²]
   wind:            0.0
-  mu_static:       50 #0.5        # kinetic friction coefficient
-  k_floor:         10    # floor spring stiffness [N/m]
+  mu_static:       5.0e4 # 50        # kinetic friction coefficient
+  k_floor:         10 #10    # floor spring stiffness [N/m]
   actuator_max_extension_per_cycle: 0.01   # max bar extension per neural tick [m]
 
   # ── Self-collision repulsion ──────────────────────────────────────────────
@@ -127,10 +129,16 @@ fitness:
   k_repulse_vertex:        10.0   # spring constant [N/m²].  0 = disabled.
   repulse_vertex_min_dist: 0.02  # minimum separation before penalty kicks in [m]
   #
-  # Bar-bar: penalises non-adjacent bar pairs whose closest-point distance
-  #          falls below the threshold (catches crossing / near-crossing bars).
+  # Bar-bar + vertex-bar: penalises non-adjacent bar pairs whose closest-point
+  #   distance falls below the threshold (catches crossing / near-crossing bars),
+  #   AND any vertex that penetrates the interior of a non-incident bar
+  #   (catches e.g. a triangle collapsing to a line).
   k_repulse_bar:           10.0   # spring constant [N/m²].  0 = disabled.
-  repulse_bar_min_dist:    0.02  # minimum bar-to-bar clearance [m]
+  repulse_bar_min_dist:    0.02  # minimum clearance [m]
+
+  # Per-step position noise [m] injected during relaxation to escape unstable
+  # equilibria (e.g. robot balanced on a vertex tip).  
+  noise_amplitude: 2.5e-6
 
 # ── Video — only used when evaluate_final: true ───────────────────────────────
 
@@ -143,4 +151,14 @@ video:
   width:           1280
   height:          720 
   verbose:         false   # suppress raylib INFO and ffmpeg output
-  min_fitness:     0.01    # skip MP4 render if best fitness is below this [m]
+  min_fitness:     0.005 #0.01    # skip MP4 render if best fitness is below this [m]
+  render_vertex_radius: 0.006  # visual sphere radius for vertices [m]
+  render_bar_radius:    0.005  # visual cylinder radius for bars and actuators [m]
+  actuator_housing_radius_scale: 1.0   # fat housing radius = render_bar_radius × this
+  actuator_rod_radius_scale:     0.5  # thin piston rod radius = render_bar_radius × this  floor_contact_threshold: 0.006  # vertex highlight height [m]; red when centre ≤ this (match render_vertex_radius)
+  floor_shadow_height:     0.05   # blob shadow for vertices below this height [m] (0 = disable)  camera_distance:  0.2   # camera distance from robot CoM [m]  (smaller = closer)
+  camera_fov:       45.0  # perspective field of view [degrees]  (smaller = tighter zoom)
+  camera_elevation: 0.8   # vertical offset as fraction of lateral distance  (0=side, 1=above)
+  camera_follow:    true  # true = track robot CoM each frame; false = fixed camera at origin
+  camera_distance:  0.2   # camera distance from robot CoM [m]  (smaller = closer)
+  floor_grid_spacing: 0.10  # ground grid line spacing [m]  (0.01 = 1 cm)

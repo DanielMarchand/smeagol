@@ -133,7 +133,11 @@ void FitnessEvaluator::renderVideo(Robot robot, const FitnessParams& fp,
                                    int fps, int width, int height, bool verbose,
                                    float render_vertex_radius, float render_bar_radius,
                                    float camera_distance, float camera_fov, float camera_elevation,
-                                   bool camera_follow)
+                                   bool camera_follow, float floor_grid_spacing,
+                                   float actuator_housing_radius_scale,
+                                   float actuator_rod_radius_scale,
+                                   float floor_contact_threshold,
+                                   float floor_shadow_height)
 {
     Simulator sim = makeSimulator(robot, fp);
 
@@ -156,7 +160,12 @@ void FitnessEvaluator::renderVideo(Robot robot, const FitnessParams& fp,
     vid.camera_distance      = camera_distance;
     vid.camera_fov           = camera_fov;
     vid.camera_elevation     = camera_elevation;
-    vid.camera_follow        = camera_follow;
+    vid.camera_follow                   = camera_follow;
+    vid.floor_grid_spacing              = floor_grid_spacing;
+    vid.actuator_housing_radius_scale   = actuator_housing_radius_scale;
+    vid.actuator_rod_radius_scale       = actuator_rod_radius_scale;
+    vid.floor_contact_threshold         = floor_contact_threshold;
+    vid.floor_shadow_height             = floor_shadow_height;
     int steps_done = 0;
 
     // ── Delay phase (rendered but not counted toward fitness) ─────────────
@@ -177,7 +186,7 @@ void FitnessEvaluator::renderVideo(Robot robot, const FitnessParams& fp,
             sim.copyPositionsBack(robot);
             vid.addFrame(robot,
                          static_cast<double>(steps_done) * fp.step_size,
-                         sim.activations_);
+                         sim.activations_, sim.rest_lengths_);
         }
         delay_done += cycle_steps;
     }
@@ -197,7 +206,7 @@ void FitnessEvaluator::renderVideo(Robot robot, const FitnessParams& fp,
             sim.copyPositionsBack(robot);
             vid.addFrame(robot,
                          static_cast<double>(steps_done) * fp.step_size,
-                         sim.activations_);
+                         sim.activations_, sim.rest_lengths_);
         }
     }
     vid.finish(path);

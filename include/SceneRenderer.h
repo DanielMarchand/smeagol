@@ -62,6 +62,24 @@ public:
     float render_vertex_radius = 0.010f;
     /// Visual cylinder radius for bars [m].  Set to repulse_bar_min_dist/2.
     float render_bar_radius    = 0.010f;
+    /// Housing cylinder radius = render_bar_radius × this scale  (fat outer tube).
+    float actuator_housing_radius_scale = 2.0f;
+    /// Piston rod radius = render_bar_radius × this scale  (thin inner rod).
+    float actuator_rod_radius_scale     = 0.65f;
+
+    // ── Floor-contact / proximity effects (set before the first frame) ───
+    /// Vertex centre height [m] at or below which the vertex is highlighted
+    /// bright red (touching / clipping floor).  Defaults to render_vertex_radius
+    /// so the highlight fires when the sphere surface reaches the floor.
+    float floor_contact_threshold = 0.010f;
+    /// Vertices whose centre is below this height [m] cast a blob shadow on the
+    /// floor.  Shadow becomes more opaque and larger as the vertex descends.
+    /// Set to 0 to disable shadows.
+    float floor_shadow_height     = 0.05f;
+
+    // ── Floor grid settings (set before the first frame) ─────────────────
+    float floor_grid_spacing = 0.01f;  ///< spacing between ground-grid lines [m]  (default 1 cm)
+    int   floor_grid_slices  = 100;    ///< grid lines per axis; total visible range = slices × spacing
 
     // ── Camera settings (set before the first frame) ──────────────────────
     float camera_distance  = 1.5f;  ///< distance from target [m]
@@ -131,9 +149,18 @@ protected:
      *
      * Bar and vertex radii are taken from render_bar_radius / render_vertex_radius.
      */
-    void drawRobot(const Robot& robot,
-                   Color        vertex_color = SKYBLUE,
-                   Color        bar_color    = LIGHTGRAY);
+    /**
+     * @param rest_lengths  Per-bar current rest lengths from Simulator::rest_lengths_.
+     *                      When provided, actuated bars are drawn as a fat housing
+     *                      cylinder (base rest length `robot.bars[i].rest_length`) plus
+     *                      a thin piston rod (full v1→v2 geometry).  The rod protrudes
+     *                      past the housing end to show any extension above base.
+     *                      When empty (default), actuated bars are drawn as a single
+     *                      bright cylinder (backwards-compatible).
+     */
+    void drawRobot(const Robot&               robot,
+                   const std::vector<double>& rest_lengths = {},
+                   Color                      vertex_color = SKYBLUE);
 
     /**
      * Draw a neural-network overlay above the robot.
