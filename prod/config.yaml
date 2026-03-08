@@ -117,7 +117,7 @@ fitness:
   step_size:       1.0e-2
   gravity:         9.81e4 #9.81        # gravitational acceleration [m/s²]
   wind:            0.0
-  mu_static:       5.0e3 # 50        # kinetic friction coefficient
+  mu_static:       1.0e-1 # 50        # kinetic friction coefficient
   k_floor:         10 #10    # floor spring stiffness [N/m]
   actuator_max_extension_per_cycle: 0.01   # max bar extension per neural tick [m]
 
