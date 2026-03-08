@@ -73,8 +73,24 @@ target_link_libraries(generate_robots PRIVATE smeagol_core)
 add_executable(demo_mutator tools/demo_mutator.cpp)
 target_link_libraries(demo_mutator PRIVATE smeagol_core)
 
-add_executable(evolve tools/evolve.cpp)
+add_executable(evolve src/evolve.cpp)
 target_link_libraries(evolve PRIVATE smeagol_core)
 
 add_executable(drift_robot tools/drift_robot.cpp)
 target_link_libraries(drift_robot PRIVATE smeagol_core)
+
+# ──────────────────────────────────────────────
+# Documentation
+# ──────────────────────────────────────────────
+
+find_package(Doxygen OPTIONAL_COMPONENTS dot)
+if(DOXYGEN_FOUND)
+    add_custom_target(docs
+        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Generating API documentation with Doxygen"
+        VERBATIM
+    )
+else()
+    message(STATUS "Doxygen not found — 'docs' target unavailable")
+endif()

@@ -32,10 +32,16 @@ jobs:
           cmake --build /tmp/raylib_src/build -j$(nproc)
           cmake --install /tmp/raylib_src/build
 
+      - name: Install Doxygen
+        run: sudo apt-get install -y --no-install-recommends doxygen
+
       - name: Configure & build
         run: |
           cmake -B build -DCMAKE_PREFIX_PATH=/tmp/raylib-install
           cmake --build build -j$(nproc)
+
+      - name: Build docs
+        run: cmake --build build --target docs
 
       - name: Test
         run: xvfb-run --auto-servernum ctest --test-dir build --output-on-failure
